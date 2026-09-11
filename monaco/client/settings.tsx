@@ -9,6 +9,10 @@ import {
 import { Text, View } from "react-native";
 import { DEFAULT_COMMAND, editorSettings, type ServerSettings } from "../shared/settings";
 
+function portError(port: number): string | null {
+  return port !== 0 && port < 1024 ? "Ports below 1024 need privileges the daemon will not have." : null;
+}
+
 export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
   const settings = useSettings(editorSettings);
 
@@ -60,8 +64,16 @@ export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
             onChangeText={(bindHost) => update({ bindHost })}
           />
           <SettingsInput
+            label="Port"
+            hint="0 picks a free port. Pin it for a remote daemon: an SSH forward or proxy rule needs a stable number."
+            placeholder="0"
+            initialValue={String(values.port)}
+            error={portError(values.port)}
+            onChangeText={(port) => update({ port: Number.parseInt(port, 10) || 0 })}
+          />
+          <SettingsInput
             label="Public URL"
-            hint="Set this when the app is not on the daemon machine and reaches the server through a proxy or tunnel."
+            hint="Used verbatim. Leave empty when you forward the same port locally, which is the usual remote setup."
             placeholder="https://editor.example.com"
             initialValue={values.publicUrl}
             onChangeText={(publicUrl) => update({ publicUrl })}

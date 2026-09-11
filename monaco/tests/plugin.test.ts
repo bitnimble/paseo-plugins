@@ -40,6 +40,15 @@ test("the frame URL carries the folder and connection token", async () => {
   }
 });
 
+test("a pinned port is used as given, so a tunnel can target it", async () => {
+  const server = await CodeServer.start(settings({ command: FAKE_SERVER, port: 39871 }));
+  try {
+    assert.equal(new URL(server.urlFor("/srv/app")).port, "39871");
+  } finally {
+    await server.dispose();
+  }
+});
+
 test("a public URL replaces the local origin but keeps the query", async () => {
   const server = await CodeServer.start(
     settings({ command: FAKE_SERVER, publicUrl: "https://editor.example.com/" }),

@@ -19,7 +19,7 @@ export class CodeServer {
 
   static async start(settings: ServerSettings): Promise<CodeServer> {
     const command = settings.command.trim().length > 0 ? settings.command.trim() : "openvscode-server";
-    const port = await freePort(settings.bindHost);
+    const port = settings.port === 0 ? await freePort(settings.bindHost) : settings.port;
     const token = randomUUID();
     const args = [
       "--host",
