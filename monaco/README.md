@@ -64,7 +64,11 @@ dropped.
 
 ## Limits
 
-- Web and desktop only. Monaco needs a DOM, so the panel shows a message on iOS and Android.
+- Web and desktop only, and not because Monaco cannot run on a phone: it runs fine inside a web
+  view. A Paseo plugin has no way to reach one. React Native dropped `WebView` from core in 0.60,
+  `react-native-webview` is not on the plugin client allowlist, and the SDK exports no replacement,
+  so DOM access stops at React Native Web. The panel shows a message on iOS and Android. A WebView
+  primitive in `@getpaseo/plugin/client/react-native` is what would change that.
 - Monaco loads from `cdn.jsdelivr.net` at first use; the panel reports a load failure if the app's
   network or CSP blocks it.
 - No diagnostics. Plugin RPC is request/response, so nothing carries server-pushed publishes to the
