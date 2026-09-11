@@ -69,6 +69,7 @@ export interface MonacoEditor {
     keybindings?: readonly number[];
     run(): void;
   }): IDisposable;
+  updateOptions(options: object): void;
   layout(): void;
   focus(): void;
   dispose(): void;

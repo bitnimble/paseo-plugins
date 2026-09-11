@@ -9,8 +9,11 @@ import {
   syncRpc,
   writeFileRpc,
 } from "./shared/protocol";
+import { editorSettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
+  server.registerSettings(editorSettings);
+
   let sessions: EditorSessions | null = null;
   let handlers: ReturnType<typeof createHandlers> | null = null;
 

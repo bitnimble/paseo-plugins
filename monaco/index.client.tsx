@@ -1,9 +1,17 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { disposeProviders } from "./client/editor";
 import { EditorPanel } from "./client/panel";
+import { EditorSettingsScreen } from "./client/settings";
 import { editorTabs } from "./client/tabs";
 
 export default function contribute(client: PluginClientContext) {
+  client.addSettingsScreen({
+    id: "editor",
+    title: "Editor",
+    icon: "FileCode",
+    Component: EditorSettingsScreen,
+  });
+
   client.addWorkspacePanel({
     id: "editor",
     title: "Editor",

@@ -1,11 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { type PluginWorkspacePanelProps, useRpc, useWorkspace } from "@getpaseo/plugin/client";
+import {
+  type PluginWorkspacePanelProps,
+  useRpc,
+  useSettings,
+  useWorkspace,
+} from "@getpaseo/plugin/client";
 import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { leaseRpc, lspRpc, readFileRpc, syncRpc, writeFileRpc } from "../shared/protocol";
 import { EditorController, type EditorBridge } from "./editor";
 import { FilePicker } from "./picker";
+import { editorSettings } from "../shared/settings";
 import { editorTabs, useEditorTabs } from "./tabs";
 import { asEditorContainer, isEditorSupported } from "./web";
 
@@ -15,6 +21,8 @@ export function EditorPanel({ theme, layout, workspaceId }: PluginWorkspacePanel
   const directory = useWorkspace(workspaceId, (workspace) => workspace.directory);
   const tabs = useEditorTabs(workspaceId);
   const toast = useToast();
+  const settings = useSettings(editorSettings);
+  const values = settings.status === "ready" ? settings.values : null;
 
   const lease = useRpc(leaseRpc);
   const readFile = useRpc(readFileRpc);
@@ -22,8 +30,8 @@ export function EditorPanel({ theme, layout, workspaceId }: PluginWorkspacePanel
   const lsp = useRpc(lspRpc);
   const sync = useRpc(syncRpc);
 
-  const calls = useRef({ lease, readFile, writeFile, lsp, sync, toast, theme });
-  calls.current = { lease, readFile, writeFile, lsp, sync, toast, theme };
+  const calls = useRef({ lease, readFile, writeFile, lsp, sync, toast, theme, values });
+  calls.current = { lease, readFile, writeFile, lsp, sync, toast, theme, values };
 
   const [container, setContainer] = useState<object | null>(null);
   const [controller, setController] = useState<EditorController | null>(null);
@@ -53,7 +61,13 @@ export function EditorPanel({ theme, layout, workspaceId }: PluginWorkspacePanel
 
   useEffect(() => {
     const leaseId = `${workspaceId}:${Math.random().toString(36).slice(2)}`;
-    const hold = () => void calls.current.lease({ workspaceId, leaseId, action: "hold" });
+    const hold = () =>
+      void calls.current.lease({
+        workspaceId,
+        leaseId,
+        action: "hold",
+        languageServers: calls.current.values?.languageServers,
+      });
     hold();
     const refresh = setInterval(hold, LEASE_REFRESH_MS);
     return () => {
@@ -63,12 +77,18 @@ export function EditorPanel({ theme, layout, workspaceId }: PluginWorkspacePanel
   }, [workspaceId]);
 
   useEffect(() => {
-    if (container == null || directory == null) {
+    if (container == null || directory == null || calls.current.values == null) {
       return;
     }
     let created: EditorController | null = null;
     let live = true;
-    void EditorController.create(asEditorContainer(container), directory, bridge, calls.current.theme)
+    void EditorController.create(
+      asEditorContainer(container),
+      directory,
+      bridge,
+      calls.current.theme,
+      calls.current.values,
+    )
       .then((editor) => {
         created = editor;
         if (live) {
@@ -88,11 +108,17 @@ export function EditorPanel({ theme, layout, workspaceId }: PluginWorkspacePanel
       created?.dispose();
       setController(null);
     };
-  }, [container, directory, bridge]);
+  }, [container, directory, bridge, values != null]);
 
   useEffect(() => {
     controller?.setTheme(theme);
   }, [controller, theme]);
+
+  useEffect(() => {
+    if (values != null) {
+      controller?.setOptions(values);
+    }
+  }, [controller, values]);
 
   useEffect(() => {
     if (controller == null || tabs.activePath == null) {

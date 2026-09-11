@@ -1,6 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { LSP_MONACO_LANGUAGES, languageForPath } from "../shared/languages";
 import type { LspMethod } from "../shared/protocol";
+import { toEditorOptions, type EditorSettings } from "../shared/settings";
 import {
   toCompletions,
   toHoverMarkdown,
@@ -78,17 +79,17 @@ export class EditorController {
     directory: string,
     bridge: EditorBridge,
     theme: PluginTheme,
+    settings: EditorSettings,
   ): Promise<EditorController> {
-    const monaco = await loadMonaco();
+    const monaco = await loadMonaco(settings.monacoBaseUrl);
     applyTheme(monaco, theme);
     registerProviders(monaco);
 
     const editor = monaco.editor.create(container, {
       automaticLayout: true,
-      minimap: { enabled: false },
       scrollBeyondLastLine: false,
-      fontSize: 13,
       theme: "paseo",
+      ...toEditorOptions(settings),
     });
     const controller = new EditorController(monaco, editor, directory, bridge);
     controllers.add(controller);
@@ -132,6 +133,10 @@ export class EditorController {
 
   setTheme(theme: PluginTheme): void {
     applyTheme(this.monaco, theme);
+  }
+
+  setOptions(settings: EditorSettings): void {
+    this.editor.updateOptions(toEditorOptions(settings));
   }
 
   dispose(): void {

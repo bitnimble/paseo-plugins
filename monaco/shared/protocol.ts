@@ -28,6 +28,8 @@ export const leaseRpc = defineRpc({
     workspaceId: z.string(),
     leaseId: z.string(),
     action: z.enum(["hold", "release"]),
+    /** Settings live on the client, so the panel carries its command overrides to the daemon. */
+    languageServers: z.record(z.string(), z.string()).optional(),
   }),
   output: z.object({ leases: z.number() }),
 });

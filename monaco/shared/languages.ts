@@ -33,6 +33,14 @@ export function languageForPath(path: string): LanguageEntry | null {
   return BY_EXTENSION[name.slice(dot).toLowerCase()] ?? null;
 }
 
+export const SERVER_LABELS: Readonly<Record<string, string>> = {
+  typescript: "TypeScript and JavaScript",
+  python: "Python",
+  go: "Go",
+  rust: "Rust",
+  clang: "C and C++",
+};
+
 export const LSP_MONACO_LANGUAGES: readonly string[] = [
   ...new Set(Object.values(BY_EXTENSION).map((entry) => entry.monacoLanguage)),
 ];

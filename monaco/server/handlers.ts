@@ -47,11 +47,12 @@ export function createHandlers(sessions: EditorSessions) {
       workspaceId,
       leaseId,
       action,
+      languageServers,
     }: RpcInput<typeof leaseRpc>): Promise<RpcOutput<typeof leaseRpc>> {
       if (action === "release") {
         return { leases: await sessions.release(workspaceId, leaseId) };
       }
-      return { leases: sessions.acquire(workspaceId, leaseId) };
+      return { leases: sessions.acquire(workspaceId, leaseId, languageServers) };
     },
 
     async lsp({

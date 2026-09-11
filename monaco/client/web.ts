@@ -1,8 +1,6 @@
 import { Platform } from "react-native";
 import type { EditorContainer, Monaco } from "./monaco-api";
 
-const MONACO_BASE = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/";
-
 // This plugin typechecks without the DOM library. Declare only what this module uses.
 interface ScriptElement {
   src: string;
@@ -34,8 +32,9 @@ export function isEditorSupported(): boolean {
   return Platform.OS === "web";
 }
 
-export function loadMonaco(): Promise<Monaco> {
-  loading ??= injectMonaco();
+/** Monaco installs itself on `window` once per page, so a later base URL takes effect on reload. */
+export function loadMonaco(baseUrl: string): Promise<Monaco> {
+  loading ??= injectMonaco(baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   return loading;
 }
 
@@ -43,7 +42,7 @@ export function asEditorContainer(node: object): EditorContainer {
   return node as unknown as EditorContainer;
 }
 
-async function injectMonaco(): Promise<Monaco> {
+async function injectMonaco(base: string): Promise<Monaco> {
   if (!isEditorSupported()) {
     throw new Error("The editor runs only in the Paseo web and desktop apps.");
   }
@@ -51,14 +50,14 @@ async function injectMonaco(): Promise<Monaco> {
     return window.monaco;
   }
 
-  window.MonacoEnvironment = { getWorkerUrl: crossOriginWorkerUrl };
-  await loadScript(`${MONACO_BASE}vs/loader.js`);
+  window.MonacoEnvironment = { getWorkerUrl: () => crossOriginWorkerUrl(base) };
+  await loadScript(`${base}vs/loader.js`);
 
   const loader = window.require;
   if (loader == null) {
     throw new Error("The Monaco AMD loader did not install itself.");
   }
-  loader.config({ paths: { vs: `${MONACO_BASE}vs` } });
+  loader.config({ paths: { vs: `${base}vs` } });
   await new Promise<void>((resolve) => {
     // Leave window.require in place: Monaco fetches each Monarch grammar through it on first use.
     loader(["vs/editor/editor.main"], resolve);
@@ -71,8 +70,8 @@ async function injectMonaco(): Promise<Monaco> {
   return monaco;
 }
 
-function crossOriginWorkerUrl(): string {
-  const proxy = `self.MonacoEnvironment={baseUrl:"${MONACO_BASE}"};importScripts("${MONACO_BASE}vs/base/worker/workerMain.js");`;
+function crossOriginWorkerUrl(base: string): string {
+  const proxy = `self.MonacoEnvironment={baseUrl:"${base}"};importScripts("${base}vs/base/worker/workerMain.js");`;
   return window.URL.createObjectURL(new window.Blob([proxy], { type: "text/javascript" }));
 }
 

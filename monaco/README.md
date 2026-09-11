@@ -22,6 +22,24 @@ paseo plugin install /absolute/path/to/monaco
 Open a workspace and pick **Open editor** from the Command Center, or run `/edit src/app.ts` in the
 composer.
 
+## Settings
+
+**Settings → Plugins → Monaco → Editor.** Values are host-scoped: stored by the daemon, shared by
+every client connected to it, and they survive restarts, reloads and updates. Removing the plugin
+deletes them.
+
+| Setting                  | Effect                                                                    |
+| ------------------------ | ------------------------------------------------------------------------- |
+| Font size, tab size      | Applied live to open editors.                                             |
+| Word wrap, minimap, line numbers | Applied live to open editors.                                     |
+| Language servers         | Full command line per server, overriding the table below.                 |
+| Monaco base URL          | Point at a self-hosted copy when the CDN is unreachable.                  |
+
+Paseo only exposes settings to client code, so the panel carries the language-server overrides to
+the daemon on its lease. A changed command reaches the daemon within 30 seconds, and applies to the
+next server it starts, not one already running for that workspace. The Monaco base URL applies when
+the app next loads Monaco, since it installs itself on the page once.
+
 ## Language servers
 
 The plugin spawns whichever of these is on the daemon's `PATH`; a file with no matching server still

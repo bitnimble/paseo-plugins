@@ -17,6 +17,7 @@ export class EditorSessions {
   private readonly servers = new Map<string, Map<string, Promise<LspSession>>>();
   private readonly directories = new Map<string, Promise<string>>();
   private readonly reachable = new Map<string, Set<string>>();
+  private readonly overrides = new Map<string, Readonly<Record<string, string>>>();
   private readonly sweeper: NodeJS.Timeout;
 
   constructor(private readonly paseo: PaseoApi) {
@@ -24,13 +25,20 @@ export class EditorSessions {
     this.sweeper.unref();
   }
 
-  acquire(workspaceId: string, leaseId: string): number {
+  acquire(
+    workspaceId: string,
+    leaseId: string,
+    languageServers: Readonly<Record<string, string>> | undefined,
+  ): number {
     let held = this.leases.get(workspaceId);
     if (held == null) {
       held = new Map();
       this.leases.set(workspaceId, held);
     }
     held.set(leaseId, Date.now());
+    if (languageServers != null) {
+      this.overrides.set(workspaceId, languageServers);
+    }
     return held.size;
   }
 
@@ -87,7 +95,7 @@ export class EditorSessions {
 
   async sessionFor(workspaceId: string, path: string): Promise<LspSession | null> {
     const language = languageForPath(path);
-    const command = language == null ? null : SERVER_COMMANDS[language.serverId];
+    const command = language == null ? null : this.commandFor(workspaceId, language.serverId);
     if (language == null || command == null) {
       return null;
     }
@@ -120,6 +128,14 @@ export class EditorSessions {
     await Promise.all([...this.servers.keys()].map((workspaceId) => this.stopWorkspace(workspaceId)));
   }
 
+  private commandFor(workspaceId: string, serverId: string): readonly string[] | null {
+    const override = this.overrides.get(workspaceId)?.[serverId]?.trim();
+    if (override != null && override.length > 0) {
+      return override.split(/\s+/);
+    }
+    return SERVER_COMMANDS[serverId] ?? null;
+  }
+
   private async startSession(workspaceId: string, command: readonly string[]): Promise<LspSession> {
     return await LspSession.start(command, await this.directoryFor(workspaceId));
   }
@@ -144,6 +160,7 @@ export class EditorSessions {
     this.servers.delete(workspaceId);
     this.directories.delete(workspaceId);
     this.reachable.delete(workspaceId);
+    this.overrides.delete(workspaceId);
     if (byServer == null) {
       return;
     }
