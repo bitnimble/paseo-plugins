@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { connect, createServer } from "node:net";
 import type { ServerSettings } from "../shared/settings";
+import { Tunnel } from "./tunnel";
 
 const READY_TIMEOUT_MS = 90_000;
 const READY_POLL_MS = 250;
@@ -9,6 +10,8 @@ const KILL_GRACE_MS = 5_000;
 
 export class CodeServer {
   private stopped = false;
+
+  private tunnel: Tunnel | null = null;
 
   private constructor(
     private readonly child: ChildProcess,
@@ -40,6 +43,7 @@ export class CodeServer {
     const server = new CodeServer(child, settings, port, token);
     try {
       await server.waitUntilListening();
+      await server.openTunnel();
     } catch (error) {
       await server.dispose();
       throw error;
@@ -48,11 +52,27 @@ export class CodeServer {
   }
 
   urlFor(folder: string): string {
-    const base =
-      this.settings.publicUrl.trim().length > 0
-        ? this.settings.publicUrl.trim().replace(/\/+$/, "")
-        : `http://${reachableHost(this.settings.bindHost)}:${String(this.port)}`;
-    return `${base}/?tkn=${encodeURIComponent(this.token)}&folder=${encodeURIComponent(folder)}`;
+    return `${this.origin()}/?tkn=${encodeURIComponent(this.token)}&folder=${encodeURIComponent(folder)}`;
+  }
+
+  private origin(): string {
+    const configured = this.settings.publicUrl.trim();
+    if (configured.length > 0) {
+      return configured.replace(/\/+$/, "");
+    }
+    if (this.tunnel != null) {
+      return this.tunnel.origin.replace(/\/+$/, "");
+    }
+    return `http://${reachableHost(this.settings.bindHost)}:${String(this.port)}`;
+  }
+
+  private async openTunnel(): Promise<void> {
+    const command = this.settings.tunnelCommand.trim();
+    if (command.length === 0) {
+      return;
+    }
+    this.tunnel = await Tunnel.start(command, this.port);
+    console.log(`[editor] tunnel origin ${this.tunnel.origin}`);
   }
 
   async dispose(): Promise<void> {
@@ -60,6 +80,8 @@ export class CodeServer {
       return;
     }
     this.stopped = true;
+    this.tunnel?.dispose();
+    this.tunnel = null;
     if (this.child.exitCode == null && this.child.signalCode == null) {
       this.signalGroup("SIGTERM");
       const kill = setTimeout(() => this.signalGroup("SIGKILL"), KILL_GRACE_MS);

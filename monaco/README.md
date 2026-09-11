@@ -39,6 +39,7 @@ which is after the last editor tab closes.
 | Bind address     | `127.0.0.1` by default, keeping the server off the network.                     |
 | Port             | `0` picks a free one. Pin it for a remote daemon.                               |
 | Public URL       | Origin the app should load instead of `127.0.0.1:<port>`, used verbatim.        |
+| Tunnel command   | Runs on the daemon; the first URL it prints becomes the origin. `{port}` is substituted. |
 
 Extensions, settings and keybindings live in the server's own data directory, not in this plugin.
 They persist because `openvscode-server` keeps them under `~/.openvscode-server` unless you point
@@ -78,6 +79,22 @@ On a VPN or tailnet, bind to the interface the app can reach and name that origi
 | Port         | `3000`                                 |
 | Bind address | the tailnet or VPN address, or `0.0.0.0` |
 | Public URL   | `http://daemon.your-tailnet.ts.net:3000` |
+
+### Remote daemon, no network setup
+
+Paseo gives plugins no way to carry a port over its own connection, so the plugin runs a tunnel of
+your own instead. Set **Tunnel command** to any program that prints its public URL; `{port}` is
+substituted, and the first URL it prints becomes the origin handed to the app.
+
+```text
+cloudflared tunnel --url http://127.0.0.1:{port}
+```
+
+The tunnel starts with the server and is killed with it, so a fresh URL is minted each session. This
+puts the editor, with its terminal and filesystem access, on the public internet behind one
+unguessable token. Prefer the SSH forward unless you need reach from anywhere.
+
+**Public URL** overrides a tunnel when both are set.
 
 ### Remote daemon behind a reverse proxy
 

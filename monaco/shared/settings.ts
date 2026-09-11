@@ -11,6 +11,8 @@ export const serverSettingsSchema = z.object({
   port: z.number().int().min(0).max(65_535).default(0),
   /** Origin the app should load, used verbatim. Empty means the bind address and port. */
   publicUrl: z.string().default(""),
+  /** Run on the daemon and watched for the public URL it prints. `{port}` is substituted. */
+  tunnelCommand: z.string().default(""),
 });
 
 export type ServerSettings = z.infer<typeof serverSettingsSchema>;

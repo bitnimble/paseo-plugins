@@ -5,6 +5,7 @@ import { CodeServer, splitArgs } from "../server/server.ts";
 import { serverSettingsSchema } from "../shared/settings.ts";
 
 const FAKE_SERVER = fileURLToPath(new URL("fake-server.mjs", import.meta.url));
+const FAKE_TUNNEL = fileURLToPath(new URL("fake-tunnel.mjs", import.meta.url));
 
 function settings(overrides: Partial<ReturnType<typeof serverSettingsSchema.parse>> = {}) {
   return { ...serverSettingsSchema.parse({}), ...overrides };
@@ -47,6 +48,42 @@ test("a pinned port is used as given, so a tunnel can target it", async () => {
   } finally {
     await server.dispose();
   }
+});
+
+test("a tunnel's announced URL becomes the origin, with the port substituted in", async () => {
+  const server = await CodeServer.start(
+    settings({ command: FAKE_SERVER, port: 39872, tunnelCommand: `${FAKE_TUNNEL} http://127.0.0.1:{port}` }),
+  );
+  try {
+    const url = new URL(server.urlFor("/srv/app"));
+    assert.equal(url.origin, "https://fake-tunnel.example.com");
+    assert.equal(url.searchParams.get("folder"), "/srv/app");
+    assert.match(url.searchParams.get("tkn") ?? "", /^[0-9a-f-]{36}$/);
+  } finally {
+    await server.dispose();
+  }
+});
+
+test("an explicit public URL still wins over a tunnel", async () => {
+  const server = await CodeServer.start(
+    settings({
+      command: FAKE_SERVER,
+      tunnelCommand: `${FAKE_TUNNEL} ignored`,
+      publicUrl: "https://editor.example.com",
+    }),
+  );
+  try {
+    assert.equal(new URL(server.urlFor("/srv/app")).origin, "https://editor.example.com");
+  } finally {
+    await server.dispose();
+  }
+});
+
+test("a tunnel that dies before printing a URL fails the start", async () => {
+  await assert.rejects(
+    CodeServer.start(settings({ command: FAKE_SERVER, tunnelCommand: "true" })),
+    /tunnel/i,
+  );
 });
 
 test("a public URL replaces the local origin but keeps the query", async () => {

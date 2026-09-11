@@ -78,6 +78,13 @@ export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
             initialValue={values.publicUrl}
             onChangeText={(publicUrl) => update({ publicUrl })}
           />
+          <SettingsInput
+            label="Tunnel command"
+            hint="Run on the daemon and watched for the URL it prints. {port} is substituted. Empty runs no tunnel."
+            placeholder="cloudflared tunnel --url http://127.0.0.1:{port}"
+            initialValue={values.tunnelCommand}
+            onChangeText={(tunnelCommand) => update({ tunnelCommand })}
+          />
           <SettingsAction
             label="Restore defaults"
             actionLabel="Reset"
