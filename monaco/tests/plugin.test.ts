@@ -1,104 +1,54 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
-import {
-  toCompletions,
-  toHoverMarkdown,
-  toLocations,
-  toLspPosition,
-  toMonacoRange,
-} from "../client/convert.ts";
-import { isInside, resolveInside } from "../server/files.ts";
-import { decodeMessages, encodeMessage } from "../server/framing.ts";
-import { languageForPath } from "../shared/languages.ts";
+import { CodeServer, splitArgs } from "../server/server.ts";
+import { serverSettingsSchema } from "../shared/settings.ts";
 
-test("framing survives split and coalesced chunks", () => {
-  const stream = Buffer.concat([
-    encodeMessage({ id: 1, result: "first" }),
-    encodeMessage({ id: 2, result: "second" }),
-  ]);
+const FAKE_SERVER = fileURLToPath(new URL("fake-server.mjs", import.meta.url));
 
-  const whole = decodeMessages(stream);
-  assert.deepEqual(
-    whole.bodies.map((body) => JSON.parse(body)),
-    [
-      { id: 1, result: "first" },
-      { id: 2, result: "second" },
-    ],
+function settings(overrides: Partial<ReturnType<typeof serverSettingsSchema.parse>> = {}) {
+  return { ...serverSettingsSchema.parse({}), ...overrides };
+}
+
+test("settings default to a usable local server", () => {
+  const defaults = serverSettingsSchema.parse({});
+  assert.equal(defaults.command, "openvscode-server");
+  assert.equal(defaults.bindHost, "127.0.0.1");
+  assert.equal(defaults.publicUrl, "");
+});
+
+test("extra arguments split on whitespace and tolerate padding", () => {
+  assert.deepEqual(splitArgs("  --extensions-dir  /tmp/ext   "), ["--extensions-dir", "/tmp/ext"]);
+  assert.deepEqual(splitArgs("   "), []);
+});
+
+test("a missing binary fails fast instead of waiting out the readiness timeout", async () => {
+  const started = Date.now();
+  await assert.rejects(CodeServer.start(settings({ command: "definitely-not-a-real-editor-server" })));
+  assert.ok(Date.now() - started < 10_000, "should reject on spawn failure, not on the ready timeout");
+});
+
+test("the frame URL carries the folder and connection token", async () => {
+  const server = await CodeServer.start(settings({ command: FAKE_SERVER }));
+  try {
+    const url = new URL(server.urlFor("/home/me/project"));
+    assert.equal(url.hostname, "127.0.0.1");
+    assert.equal(url.searchParams.get("folder"), "/home/me/project");
+    assert.match(url.searchParams.get("tkn") ?? "", /^[0-9a-f-]{36}$/);
+  } finally {
+    await server.dispose();
+  }
+});
+
+test("a public URL replaces the local origin but keeps the query", async () => {
+  const server = await CodeServer.start(
+    settings({ command: FAKE_SERVER, publicUrl: "https://editor.example.com/" }),
   );
-  assert.equal(whole.rest.byteLength, 0);
-
-  const split = decodeMessages(stream.subarray(0, 20));
-  assert.deepEqual(split.bodies, []);
-  const finished = decodeMessages(Buffer.concat([split.rest, stream.subarray(20)]));
-  assert.equal(finished.bodies.length, 2);
-});
-
-test("framing measures bytes, not characters", () => {
-  const [body] = decodeMessages(encodeMessage({ text: "héllo →" })).bodies;
-  assert.deepEqual(JSON.parse(body ?? ""), { text: "héllo →" });
-});
-
-test("locations come back from every shape a server may answer with", () => {
-  const range = { start: { line: 2, character: 4 }, end: { line: 2, character: 9 } };
-  assert.deepEqual(toLocations({ uri: "file:///a.ts", range }), [{ uri: "file:///a.ts", range }]);
-  assert.deepEqual(toLocations([{ uri: "file:///a.ts", range }]), [{ uri: "file:///a.ts", range }]);
-  assert.deepEqual(toLocations([{ targetUri: "file:///a.ts", targetRange: range, targetSelectionRange: range }]), [
-    { uri: "file:///a.ts", range },
-  ]);
-  assert.deepEqual(toLocations(null), []);
-});
-
-test("positions convert between zero-based LSP and one-based Monaco", () => {
-  assert.deepEqual(toLspPosition({ lineNumber: 1, column: 1 }), { line: 0, character: 0 });
-  assert.deepEqual(toMonacoRange({ start: { line: 0, character: 0 }, end: { line: 2, character: 4 } }), {
-    startLineNumber: 1,
-    startColumn: 1,
-    endLineNumber: 3,
-    endColumn: 5,
-  });
-});
-
-test("hover contents flatten to markdown", () => {
-  assert.equal(toHoverMarkdown({ contents: { kind: "markdown", value: "**x**" } })?.markdown, "**x**");
-  assert.equal(
-    toHoverMarkdown({ contents: [{ language: "ts", value: "const x: number" }, "docs"] })?.markdown,
-    "```ts\nconst x: number\n```\n\ndocs",
-  );
-  assert.equal(toHoverMarkdown({ contents: [] }), null);
-});
-
-test("completion kinds map onto the Monaco enum", () => {
-  const [method, keyword] = toCompletions([
-    { label: "run", kind: 2 },
-    { label: "return", kind: 14 },
-  ]);
-  assert.equal(method?.kind, 0);
-  assert.equal(keyword?.kind, 17);
-  assert.equal(method?.insertText, "run");
-});
-
-test("writes are confined to the workspace", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "monaco-plugin-"));
-  assert.equal(resolveInside(directory, "src/app.ts"), join(directory, "src/app.ts"));
-  assert.throws(() => resolveInside(directory, "../outside.ts"));
-  assert.throws(() => resolveInside(directory, "/etc/passwd"));
-  assert.throws(() => resolveInside(directory, `${directory}-sibling/file.ts`));
-});
-
-test("containment does not confuse a sibling directory for a child", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "monaco-plugin-"));
-  assert.equal(isInside(directory, join(directory, "src/app.ts")), true);
-  assert.equal(isInside(directory, directory), true);
-  assert.equal(isInside(directory, `${directory}-sibling/app.ts`), false);
-  assert.equal(isInside(directory, "/etc/passwd"), false);
-});
-
-test("language routing covers the servers we spawn", () => {
-  assert.equal(languageForPath("src/app.tsx")?.lspLanguageId, "typescriptreact");
-  assert.equal(languageForPath("src/app.tsx")?.monacoLanguage, "typescript");
-  assert.equal(languageForPath("README.md"), null);
-  assert.equal(languageForPath(".gitignore"), null);
+  try {
+    const url = new URL(server.urlFor("/srv/app"));
+    assert.equal(url.origin, "https://editor.example.com");
+    assert.equal(url.searchParams.get("folder"), "/srv/app");
+  } finally {
+    await server.dispose();
+  }
 });

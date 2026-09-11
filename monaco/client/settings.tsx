@@ -5,15 +5,9 @@ import {
   SettingsCard,
   SettingsInput,
   SettingsSection,
-  SettingsSelect,
-  SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { Text, View } from "react-native";
-import { SERVER_LABELS } from "../shared/languages";
-import { MONACO_DEFAULT_BASE, editorSettings, type EditorSettings } from "../shared/settings";
-
-const FONT_SIZES = ["11", "12", "13", "14", "16", "18"] as const;
-const TAB_SIZES = ["2", "4", "8"] as const;
+import { DEFAULT_COMMAND, editorSettings, type ServerSettings } from "../shared/settings";
 
 export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
   const settings = useSettings(editorSettings);
@@ -29,7 +23,7 @@ export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
   }
 
   const { values, revision } = settings;
-  const update = (patch: Partial<EditorSettings>) => void settings.save({ ...values, ...patch }, revision);
+  const update = (patch: Partial<ServerSettings>) => void settings.save({ ...values, ...patch }, revision);
 
   return (
     <View>
@@ -39,65 +33,38 @@ export function EditorSettingsScreen({ theme }: PluginSurfaceProps) {
         </Text>
       )}
 
-      <SettingsSection title="Editor">
-        <SettingsCard>
-          <SettingsSelect
-            label="Font size"
-            value={String(values.fontSize)}
-            options={FONT_SIZES.map((size) => ({ label: size, value: size }))}
-            onValueChange={(size) => update({ fontSize: Number(size) })}
-          />
-          <SettingsSelect
-            label="Tab size"
-            value={String(values.tabSize)}
-            options={TAB_SIZES.map((size) => ({ label: size, value: size }))}
-            onValueChange={(size) => update({ tabSize: Number(size) })}
-          />
-          <SettingsSwitch
-            label="Word wrap"
-            value={values.wordWrap}
-            onValueChange={(wordWrap) => update({ wordWrap })}
-          />
-          <SettingsSwitch
-            label="Minimap"
-            value={values.minimap}
-            onValueChange={(minimap) => update({ minimap })}
-          />
-          <SettingsSwitch
-            label="Line numbers"
-            value={values.lineNumbers}
-            onValueChange={(lineNumbers) => update({ lineNumbers })}
-          />
-        </SettingsCard>
-      </SettingsSection>
-
       <SettingsSection
-        title="Language servers"
-        info="Full command line, run on the daemon machine. Blank uses the built-in default."
+        title="Editor server"
+        info="Changes apply the next time the server starts, which is after the last editor tab closes."
       >
         <SettingsCard>
-          {Object.entries(SERVER_LABELS).map(([serverId, label]) => (
-            <SettingsInput
-              key={serverId}
-              label={label}
-              placeholder={label}
-              initialValue={values.languageServers[serverId] ?? ""}
-              onChangeText={(command) =>
-                update({ languageServers: { ...values.languageServers, [serverId]: command } })
-              }
-            />
-          ))}
-        </SettingsCard>
-      </SettingsSection>
-
-      <SettingsSection title="Monaco">
-        <SettingsCard>
           <SettingsInput
-            label="Base URL"
-            hint="Point this at a self-hosted copy when the app cannot reach the CDN. Applies after the app reloads."
-            placeholder={MONACO_DEFAULT_BASE}
-            initialValue={values.monacoBaseUrl}
-            onChangeText={(monacoBaseUrl) => update({ monacoBaseUrl })}
+            label="Command"
+            hint="Runs on the daemon machine and must be on its PATH, or an absolute path."
+            placeholder={DEFAULT_COMMAND}
+            initialValue={values.command}
+            onChangeText={(command) => update({ command })}
+          />
+          <SettingsInput
+            label="Extra arguments"
+            hint="Appended to --host, --port and --connection-token."
+            placeholder="--extensions-dir /path"
+            initialValue={values.extraArgs}
+            onChangeText={(extraArgs) => update({ extraArgs })}
+          />
+          <SettingsInput
+            label="Bind address"
+            hint="127.0.0.1 keeps the server off the network. Widen it only behind a trusted network."
+            placeholder="127.0.0.1"
+            initialValue={values.bindHost}
+            onChangeText={(bindHost) => update({ bindHost })}
+          />
+          <SettingsInput
+            label="Public URL"
+            hint="Set this when the app is not on the daemon machine and reaches the server through a proxy or tunnel."
+            placeholder="https://editor.example.com"
+            initialValue={values.publicUrl}
+            onChangeText={(publicUrl) => update({ publicUrl })}
           />
           <SettingsAction
             label="Restore defaults"
