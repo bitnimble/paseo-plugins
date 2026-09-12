@@ -90,11 +90,27 @@ substituted, and the first URL it prints becomes the origin handed to the app.
 cloudflared tunnel --url http://127.0.0.1:{port}
 ```
 
-The tunnel starts with the server and is killed with it, so a fresh URL is minted each session. This
-puts the editor, with its terminal and filesystem access, on the public internet behind one
-unguessable token. Prefer the SSH forward unless you need reach from anywhere.
+The tunnel starts with the server and is killed with it, so a fresh URL is minted each session.
 
 **Public URL** overrides a tunnel when both are set.
+
+### Two secrets, and why not basic auth
+
+Every server start mints a random base path (32 URL-safe characters) as well as its connection
+token, so the frame URL is `https://host/<base-path>/?tkn=<token>`. Everything outside that path
+answers 403, which keeps a scanner that finds the tunnel hostname from reaching the editor at all,
+never mind its token. The two secrets are independent and both are needed.
+
+Basic auth would be the obvious way to add that second secret, and it cannot work here: a browser
+will not let an iframe use it. Credentials embedded in a URL (`https://user:pass@host/`) are stripped
+from subresource requests, which an iframe is, and browsers suppress the `401` auth dialog for
+cross-origin frames to stop phishing. A secret the frame can carry has to live in the URL's path or
+query, which is what the base path and the token already are.
+
+This still puts the editor, with its terminal and filesystem access, on the public internet behind
+secrets that travel in a URL and therefore land in browser history and any proxy log along the way.
+Prefer the SSH forward unless you need reach from anywhere, and prefer your tunnel's own access
+control (Cloudflare Access, a tailnet ACL) over relying on the URL alone.
 
 ### Remote daemon behind a reverse proxy
 

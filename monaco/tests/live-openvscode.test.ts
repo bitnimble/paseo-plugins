@@ -51,6 +51,12 @@ test("the real editor server opens the workspace folder and enforces its token",
     const url = new URL(server.urlFor(directory));
     assert.equal(url.searchParams.get("folder"), directory);
 
+    // Anything outside the random base path must not reveal an editor at all.
+    const root = new URL(url);
+    root.pathname = "/";
+    root.search = "";
+    assert.equal((await fetch(root, { signal: AbortSignal.timeout(15_000) })).status, 403);
+
     // The token is traded for a cookie on the first hit, so the browser lands on the workbench.
     const authorized = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
     assert.equal(authorized.status, 302);

@@ -36,6 +36,8 @@ test("the frame URL carries the folder and connection token", async () => {
     assert.equal(url.hostname, "127.0.0.1");
     assert.equal(url.searchParams.get("folder"), "/home/me/project");
     assert.match(url.searchParams.get("tkn") ?? "", /^[0-9a-f-]{36}$/);
+    // 32 URL-safe characters of base path, independent of the token.
+    assert.match(url.pathname, /^\/[A-Za-z0-9_-]{32}\/$/);
   } finally {
     await server.dispose();
   }

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { connect, createServer } from "node:net";
 import type { ServerSettings } from "../shared/settings";
 import { Tunnel } from "./tunnel";
@@ -18,12 +18,16 @@ export class CodeServer {
     private readonly settings: ServerSettings,
     private readonly port: number,
     private readonly token: string,
+    private readonly basePath: string,
   ) {}
 
   static async start(settings: ServerSettings): Promise<CodeServer> {
     const command = settings.command.trim().length > 0 ? settings.command.trim() : "openvscode-server";
     const port = settings.port === 0 ? await freePort(settings.bindHost) : settings.port;
     const token = randomUUID();
+    // A second secret at the edge: everything outside this path answers 403, so a scanner that
+    // finds the tunnel hostname never reaches the editor, let alone its token.
+    const basePath = randomBytes(24).toString("base64url");
     const args = [
       "--host",
       settings.bindHost,
@@ -31,6 +35,8 @@ export class CodeServer {
       String(port),
       "--connection-token",
       token,
+      "--server-base-path",
+      `/${basePath}`,
       ...splitArgs(settings.extraArgs),
     ];
 
@@ -40,7 +46,7 @@ export class CodeServer {
     child.stdout?.on("data", (chunk: Buffer) => console.log(`[editor] ${chunk.toString("utf8").trimEnd()}`));
     child.stderr?.on("data", (chunk: Buffer) => console.error(`[editor] ${chunk.toString("utf8").trimEnd()}`));
 
-    const server = new CodeServer(child, settings, port, token);
+    const server = new CodeServer(child, settings, port, token, basePath);
     try {
       await server.waitUntilListening();
       await server.openTunnel();
@@ -52,7 +58,8 @@ export class CodeServer {
   }
 
   urlFor(folder: string): string {
-    return `${this.origin()}/?tkn=${encodeURIComponent(this.token)}&folder=${encodeURIComponent(folder)}`;
+    const query = `tkn=${encodeURIComponent(this.token)}&folder=${encodeURIComponent(folder)}`;
+    return `${this.origin()}/${this.basePath}/?${query}`;
   }
 
   private origin(): string {
