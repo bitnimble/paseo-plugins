@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 // Plugin sources import siblings without extensions, as the plugin bundler expects.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (!specifier.startsWith(".") || /\.([cm]?[jt]sx?|txt)$/.test(specifier)) {
+    const fromDependency = context.parentURL?.includes("/node_modules/") === true;
+    if (fromDependency || !specifier.startsWith(".") || /\.([cm]?[jt]sx?|txt)$/.test(specifier)) {
       return nextResolve(specifier, context);
     }
     return nextResolve(`${specifier}.ts`, context);

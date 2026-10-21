@@ -1,7 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { reviewMonaco } from "./client/monaco/review-monaco";
-import { ReviewPanel } from "./client/panel";
-import { ReviewSettingsScreen } from "./client/settings";
+import { reviewMonaco } from "./monaco/review-monaco";
+import { ReviewPanel } from "./panel";
+import { ReviewSettingsScreen } from "./settings";
 
 export default function contribute(client: PluginClientContext): () => void {
   client.addWorkspacePanel({

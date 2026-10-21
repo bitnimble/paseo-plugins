@@ -22,5 +22,9 @@
   "include": [
     "**/*.ts",
     "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "index.client.ts"
   ]
 }
