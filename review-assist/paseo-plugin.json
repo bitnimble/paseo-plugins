@@ -1,0 +1,10 @@
+{
+  "id": "review-assist",
+  "name": "Review assist",
+  "description": "Guided review: splits a large diff into sections you review one at a time",
+  "media": [],
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts"], ["npm", "run", "bundle-monaco"]],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}

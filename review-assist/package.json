@@ -1,0 +1,38 @@
+{
+  "name": "review-assist",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "OVERVIEW.md",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "scripts/",
+    "package-lock.json"
+  ],
+  "scripts": {
+    "postinstall": "npm run bundle-monaco",
+    "bundle-monaco": "node scripts/bundle-monaco.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --no-warnings=ExperimentalWarning --import ./tests/resolve-ts.ts --test tests/*.test.ts",
+    "check": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.11.4",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^24.0.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  },
+  "dependencies": {
+    "@getpaseo/highlight": "0.12.0",
+    "monaco-editor": "0.57.0"
+  }
+}

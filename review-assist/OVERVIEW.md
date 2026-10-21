@@ -1,0 +1,75 @@
+Review assist adds a **Review** panel to every git workspace that turns a large diff into a guided
+review. An agent splits the changes into sections by intent and layer of the stack, gives each a
+title and a short description, and orders them so each section builds on the ones before it. You
+step through the sections one at a time, tick **Viewed** on each file as you finish it, and jump to
+any file from the side pane; a section is done once all its files are viewed. A toggle switches back
+to the plain full diff at any point.
+
+The agent never writes diff text. It only answers with line ranges into the real diff, so every line
+you review comes straight from git, and the sections always add up to exactly the full diff. Lines
+the agent leaves out are shown under **Other changes**. Files `.gitattributes` marks
+`linguist-generated`, and otherwise lockfiles and minified files, are kept in a **Generated files**
+section without being sent to the agent.
+
+Each section shows the code as it stands after the sections before it: their changes read as
+unchanged lines, and changes from later sections are not there yet. Line numbers are always those
+of the real old and new files.
+
+## Using it
+
+Open a workspace and choose **Open guided review** from the Command Center, or open **Review** from
+the Explorer. Pick which diff to review:
+
+- **vs main** compares the working tree, including uncommitted and untracked files, with the
+  merge-base of the default branch.
+- **Uncommitted** compares the working tree with `HEAD`.
+- Any other local or remote branch, picked from a filterable list, compares the working tree with
+  that branch's merge-base.
+
+Guides, viewed marks and comments are kept separately for each choice.
+
+**View** switches between unified and split layouts, wraps long lines, hides lines that only
+changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.
+These change how lines are shown, never which section they belong to. Drag the side pane's edge to
+resize it; these choices are saved on the daemon.
+
+In the web and desktop apps on a computer each file is a Monaco diff editor with collapsible
+unchanged lines. Once you trust the workspace, Ctrl/Cmd+click a symbol to peek at its definition,
+and hover for its type, through a language server the daemon runs for the repository:
+`typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer` or `clangd`, from the
+repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
+behind them. On phones and tablets, or when Monaco cannot load, the panel shows the diff with
+Paseo's own syntax highlighting instead. Changed images show before and after, as GitHub does; a text
+file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for binary.
+
+Language servers can run a workspace's code, so as in VS Code they stay off until you trust the
+workspace. A banner offers to, and **View → Hover and go to definition** switches it either way;
+syntax highlighting works regardless. Trust is decided per workspace and kept on the daemon, which
+refuses to start a language server for a repository no trusted workspace is in.
+
+Press **Generate guided review**. The agent runs in the reviewed workspace while it works, so you
+can open it to follow along, and it is archived once it answers. A diff too large for one agent is
+split by path into parts, one agent each, up to four at a time, and one more agent merges and orders
+their sections; a part whose agent fails leaves its lines under **Other changes**. The result is cached per diff on
+the daemon; when the diff changes, the panel says so and offers to regenerate. Reading the diff
+uses a copy of the git index, so your staging area is never touched.
+
+**Viewed** marks follow content, not sections: after a regeneration, a file stays viewed in a
+section while the lines that section shows are unchanged, and goes back to unviewed once any of
+them change.
+
+## Review comments
+
+Hover a line in Monaco and press **+** to comment on it; select several lines first to comment on
+all of them. In the built-in view, tap a line number, and long-press another to widen the comment.
+Comments are drafts kept on the daemon until you send them. **N comments** in the toolbar sends
+them all to an agent in the workspace, with an optional message, as the same review attachment
+Paseo's Changes panel sends; a running agent takes them into its current turn.
+
+## Settings
+
+**Settings → Plugins → Review assist → Model** picks the agent model. **Automatic** uses the first
+ready provider's default model.
+
+Guided reviews, viewed marks, draft comments and workspace trust are stored on the daemon host under
+`~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).
