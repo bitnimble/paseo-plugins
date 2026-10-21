@@ -6,7 +6,7 @@ export const reviewSettings = defineSettings({
   scope: "host",
   version: 1,
   schema: z.object({
-    /** `provider/model`; empty picks the first ready provider's default model. */
+    /** `provider/model`; empty is "Automatic", which `automaticChoice` resolves. */
     model: z.string().default(""),
     layout: z.enum(["unified", "split"]).default("unified"),
     wrapLines: z.boolean().default(false),

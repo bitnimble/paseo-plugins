@@ -3,7 +3,7 @@ import { z } from "zod";
 import { LINE_PREFIX, type DiffFile, type DiffHunk, type ParsedDiff } from "../shared/diff";
 import { type Proposal, proposalSchema } from "../shared/guide";
 import { messageOf } from "../shared/errors";
-import { modelChoices } from "../shared/models";
+import { automaticChoice, modelChoices } from "../shared/models";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Section = Proposal["sections"][number];
@@ -44,7 +44,7 @@ export async function resolveModel(paseo: Paseo, directory: string, configured: 
     return configured.trim();
   }
   const { entries } = await paseo.providers.waitForReady({ cwd: directory, timeoutMs: 30_000 });
-  const [choice] = modelChoices(entries);
+  const choice = automaticChoice(modelChoices(entries));
   if (choice == null) {
     throw new Error("No agent provider is ready. Pick a model under Settings → Plugins → Review assist.");
   }

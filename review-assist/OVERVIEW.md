@@ -69,7 +69,8 @@ Paseo's Changes panel sends; a running agent takes them into its current turn.
 ## Settings
 
 **Settings → Plugins → Review assist → Model** picks the agent model. **Automatic** uses the first
-ready provider's default model.
+of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and GPT-6-Sol that a ready provider offers, and
+otherwise the first ready provider's default model.
 
 Guided reviews, viewed marks, draft comments and workspace trust are stored on the daemon host under
 `~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).

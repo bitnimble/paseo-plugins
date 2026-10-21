@@ -2,7 +2,7 @@ import { type PluginSurfaceProps, usePaseo, useSettings } from "@getpaseo/plugin
 import { SettingsCard, SettingsSection, SettingsSelect } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Text } from "react-native";
-import { modelChoices } from "../shared/models";
+import { automaticChoice, modelChoices } from "../shared/models";
 import { reviewSettings } from "../shared/settings";
 
 export function ReviewSettingsScreen({ theme }: PluginSurfaceProps) {
@@ -22,9 +22,10 @@ export function ReviewSettingsScreen({ theme }: PluginSurfaceProps) {
   }
 
   const choices = modelChoices(providers.data?.entries ?? []);
+  const automatic = automaticChoice(choices);
   const current = settings.values.model;
   const options = [
-    { value: "", label: choices[0] == null ? "Automatic" : `Automatic (${choices[0].label})` },
+    { value: "", label: automatic == null ? "Automatic" : `Automatic (${automatic.label})` },
     ...(current === "" || choices.some((choice) => choice.value === current)
       ? []
       : [{ value: current, label: current }]),
