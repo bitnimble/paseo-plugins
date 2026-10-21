@@ -12,7 +12,7 @@ import { FileList, PaneHeading, Split } from "./panes";
 
 export function FullView({
   theme,
-  compact,
+  narrow,
   view,
   onResizePane,
   fold,
@@ -21,7 +21,7 @@ export function FullView({
   comments,
 }: {
   theme: PluginTheme;
-  compact: boolean;
+  narrow: boolean;
   view: ViewOptions;
   onResizePane(width: number): void;
   fold: FoldCommand | null;
@@ -43,43 +43,33 @@ export function FullView({
       </View>
     );
   }
-  const files = `${blocks.length} ${blocks.length === 1 ? "file" : "files"}`;
   return (
     <Split
       theme={theme}
-      compact={compact}
       paneWidth={view.paneWidth}
       onResizePane={onResizePane}
-      paneLabel={files}
-      pane={(close) => (
-        <>
-          <PaneHeading theme={theme}>{files} changed</PaneHeading>
-          <FileList
-            theme={theme}
-            layout={view.fileList}
-            entries={blocks.map(({ file }, blockIndex) => ({
-              file,
-              additions: file.additions,
-              deletions: file.deletions,
-              comments: counts.get(file.path),
-              onPress: () => {
-                setTarget({ blockIndex, nonce: Date.now() });
-                close();
-              },
-            }))}
-          />
-        </>
-      )}
+      pane={
+        narrow ? null : (
+          <>
+            <PaneHeading theme={theme}>
+              {blocks.length} {blocks.length === 1 ? "file" : "files"} changed
+            </PaneHeading>
+            <FileList
+              theme={theme}
+              layout={view.fileList}
+              entries={blocks.map(({ file }, blockIndex) => ({
+                file,
+                additions: file.additions,
+                deletions: file.deletions,
+                comments: counts.get(file.path),
+                onPress: () => setTarget({ blockIndex, nonce: Date.now() }),
+              }))}
+            />
+          </>
+        )
+      }
     >
-      <DiffList
-        blocks={blocks}
-        source={source}
-        theme={theme}
-        view={view}
-        target={target}
-        fold={fold}
-        comments={comments}
-      />
+      <DiffList blocks={blocks} source={source} theme={theme} view={view} target={target} fold={fold} comments={comments} />
     </Split>
   );
 }

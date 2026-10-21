@@ -251,6 +251,36 @@ export function Notice({
   );
 }
 
+/** Overlays the bottom of its parent. */
+export function ShowFullDiff({ theme, lines, onPress }: { theme: PluginTheme; lines: number; onPress(): void }) {
+  return (
+    <View
+      pointerEvents="box-none"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: 140,
+        alignItems: "center",
+        justifyContent: "flex-end",
+        // Clears the editor's blank last line and scrollbar, so the button sits on the faded code.
+        paddingBottom: 36,
+        boxShadow: `inset 0 -120px 80px -40px ${theme.colors.surface0}`,
+      }}
+    >
+      <Button
+        theme={theme}
+        size="xs"
+        variant="ghost"
+        icon="ChevronsUpDown"
+        label={`Show full diff (${lines.toLocaleString()} lines)`}
+        onPress={onPress}
+      />
+    </View>
+  );
+}
+
 export function FileLabel({ theme, path, detail }: { theme: PluginTheme; path: string; detail?: string }) {
   const slash = path.lastIndexOf("/");
   const directory = slash < 0 ? "" : path.slice(0, slash);

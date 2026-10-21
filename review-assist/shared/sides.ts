@@ -19,6 +19,8 @@ export interface Side {
 export interface BlockSides {
   readonly original: Side;
   readonly modified: Side;
+  /** Ends before the change past the limit, leaving out the rest of the file. */
+  readonly cut: boolean;
 }
 
 export interface ShownHunk {
@@ -31,17 +33,24 @@ interface Line extends SideLine {
 }
 
 export const CONTEXT_LINES = 3;
+export const CAPPED_CHANGES = 400;
 
 /**
  * The file before and after the block's own changes, given `newText`, the file as the whole diff
  * leaves it. `ignoreWhitespace` shows whitespace-only edits as unchanged, as `git diff -w` would.
  */
-export function blockSides(block: FileBlock, newText: string, ignoreWhitespace: boolean): BlockSides {
+export function blockSides(
+  block: FileBlock,
+  newText: string,
+  ignoreWhitespace: boolean,
+  changeLimit = Infinity,
+): BlockSides {
   const unchanged = splitLines(newText);
   const original: Line[] = [];
   const modified: Line[] = [];
   let next = 0;
   let oldShift = 0;
+  let changes = 0;
   const keepUnchanged = (end: number) => {
     for (; next < end; next++) {
       const line = { ...unchanged[next], oldNumber: next + 1 + oldShift, newNumber: next + 1 };
@@ -54,16 +63,19 @@ export function blockSides(block: FileBlock, newText: string, ignoreWhitespace: 
     const newCount = hunk.lines.filter((line) => line.kind !== "del").length;
     // An empty new side's start names the line before the hunk.
     keepUnchanged(newCount === 0 ? hunk.newStart : hunk.newStart - 1);
-    for (const shown of shownLines(block, hunk, ignoreWhitespace)) {
+    const taken = takeChanges(shownLines(block, hunk, ignoreWhitespace), changeLimit - changes);
+    for (const shown of taken.lines) {
       const line = { ...shown, eol: shown.noNewlineMarker == null };
       if (shown.kind !== "add") original.push(line);
       if (shown.kind !== "del") modified.push(line);
     }
+    if (taken.cut) return { original: side(original), modified: side(modified), cut: true };
+    changes += taken.changes;
     next += newCount;
     oldShift += oldCount - newCount;
   }
   keepUnchanged(unchanged.length);
-  return { original: side(original), modified: side(modified) };
+  return { original: side(original), modified: side(modified), cut: false };
 }
 
 /** The block's own changes with a few lines of context, cut into hunks the way git would. */
@@ -84,6 +96,41 @@ export function blockHunks(block: FileBlock, ignoreWhitespace: boolean): ShownHu
       return { header: rangeHeader(shown), lines: shown };
     });
   });
+}
+
+/**
+ * The lines up to `room` changes in. A run of changes the limit falls inside keeps its removals and
+ * additions in proportion, so a rewritten block shows old and new lines rather than only the old.
+ */
+export function takeChanges(
+  lines: readonly DiffLine[],
+  room: number,
+): { lines: readonly DiffLine[]; changes: number; cut: boolean } {
+  const taken: DiffLine[] = [];
+  let changes = 0;
+  for (let i = 0; i < lines.length; ) {
+    if (!isChange(lines[i])) {
+      taken.push(lines[i++]);
+      continue;
+    }
+    let end = i;
+    while (end < lines.length && isChange(lines[end])) end++;
+    const run = lines.slice(i, end);
+    i = end;
+    if (changes + run.length <= room) {
+      taken.push(...run);
+      changes += run.length;
+      continue;
+    }
+    const left = room - changes;
+    const removals = run.filter((line) => line.kind === "del").length;
+    const keptRemovals = Math.min(removals, Math.ceil((left * removals) / run.length));
+    let removed = 0;
+    let added = 0;
+    taken.push(...run.filter((line) => (line.kind === "del" ? removed++ < keptRemovals : added++ < left - keptRemovals)));
+    return { lines: taken, changes: room, cut: true };
+  }
+  return { lines: taken, changes, cut: false };
 }
 
 export function rangeHeader(lines: readonly Omit<SideLine, "text">[]): string {

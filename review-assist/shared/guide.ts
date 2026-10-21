@@ -233,8 +233,7 @@ function sectionChunks(diff: ParsedDiff, section: GuideSection): Map<DiffFile, D
 }
 
 export function isWholeFile(block: FileBlock): boolean {
-  const lines = (chunks: readonly DiffChunk[]) => chunks.reduce((sum, chunk) => sum + chunk.end - chunk.start, 0);
-  return block.later.length === 0 && lines(block.chunks) === block.file.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
+  return block.later.length === 0 && blockLines(block) === block.file.hunks.reduce((sum, hunk) => sum + hunk.lines.length, 0);
 }
 
 /** Covers the block's own changes only, not the lines around them. */
@@ -247,6 +246,15 @@ export function blockFingerprint(block: FileBlock): string {
           hunk.lines.slice(start, end).flatMap((line) => (isChange(line) ? [LINE_PREFIX[line.kind] + line.text] : [])),
         );
   return hashText([file.oldPath ?? "", file.path, ...shown].join("\n"));
+}
+
+export function blockLines(block: FileBlock): number {
+  return block.chunks.reduce((sum, chunk) => sum + chunk.end - chunk.start, 0);
+}
+
+export function blockChanges(block: FileBlock): number {
+  const { additions, deletions } = blockCounts(block);
+  return additions + deletions;
 }
 
 export function blockCounts(block: FileBlock): { additions: number; deletions: number } {

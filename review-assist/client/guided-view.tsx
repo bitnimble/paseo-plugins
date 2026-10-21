@@ -9,13 +9,14 @@ import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
 import { Button, Notice } from "./controls";
-import { type CommentStore, DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
+import { DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
 import { FileList, PaneHeading, Split } from "./panes";
-import type { Review } from "./use-review";
+import { type Review, commentStore } from "./use-review";
 
 interface GuidedViewProps {
   readonly theme: PluginTheme;
-  readonly compact: boolean;
+  /** Too narrow for the side pane: every section in one scroll instead. */
+  readonly narrow: boolean;
   readonly view: ViewOptions;
   readonly onResizePane: (width: number) => void;
   readonly fold: FoldCommand | null;
@@ -23,7 +24,7 @@ interface GuidedViewProps {
   readonly openAgent?: (agentId: string) => void;
 }
 
-export function GuidedView({ theme, compact, view, onResizePane, fold, review, openAgent }: GuidedViewProps) {
+export function GuidedView({ theme, narrow, view, onResizePane, fold, review, openAgent }: GuidedViewProps) {
   const { guide, live } = review;
   if (guide == null) {
     return <Message theme={theme}>{review.guideError ?? "Loading the guided review…"}</Message>;
@@ -76,7 +77,7 @@ export function GuidedView({ theme, compact, view, onResizePane, fold, review, o
       <View style={{ flex: 1 }}>
         {notices}
         {job == null ? (
-          <View style={{ padding: compact ? 16 : 24, gap: 12, maxWidth: 560 }}>
+          <View style={{ padding: narrow ? 16 : 24, gap: 12, maxWidth: 560 }}>
             <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
               Guided review
             </Text>
@@ -106,7 +107,7 @@ export function GuidedView({ theme, compact, view, onResizePane, fold, review, o
       {notices}
       <Sections
         theme={theme}
-        compact={compact}
+        narrow={narrow}
         view={view}
         onResizePane={onResizePane}
         fold={fold}
@@ -120,7 +121,7 @@ export function GuidedView({ theme, compact, view, onResizePane, fold, review, o
 
 function Sections({
   theme,
-  compact,
+  narrow,
   view,
   onResizePane,
   fold,
@@ -129,7 +130,7 @@ function Sections({
   review,
 }: {
   theme: PluginTheme;
-  compact: boolean;
+  narrow: boolean;
   view: ViewOptions;
   onResizePane(width: number): void;
   fold: FoldCommand | null;
@@ -145,9 +146,19 @@ function Sections({
       ? sections.map((blocks) => treeOrder(blocks, (block) => block.file.path))
       : sections;
   }, [record.sections, diff, view.fileList]);
+  const allBlocks = useMemo(() => blocksBySection.flat(), [blocksBySection]);
+  const sectionStarts = useMemo(() => {
+    const starts = new Map<number, number>();
+    let offset = 0;
+    blocksBySection.forEach((blocks, sectionIndex) => {
+      if (blocks.length > 0) starts.set(offset, sectionIndex);
+      offset += blocks.length;
+    });
+    return starts;
+  }, [blocksBySection]);
   const fingerprints = useMemo(
-    () => new Map(blocksBySection.flat().map((block) => [block, blockFingerprint(block)])),
-    [blocksBySection],
+    () => new Map(allBlocks.map((block) => [block, blockFingerprint(block)])),
+    [allBlocks],
   );
   const marks = useMemo(
     () => new Set(review.state.viewed.map(({ path, fingerprint }) => `${path}\0${fingerprint}`)),
@@ -169,11 +180,7 @@ function Sections({
     setViewed: (block, value) =>
       review.setViewed({ path: block.file.path, fingerprint: fingerprints.get(block) ?? blockFingerprint(block) }, value),
   };
-  const comments: CommentStore = {
-    comments: review.state.comments,
-    save: review.saveComment,
-    remove: review.deleteComment,
-  };
+  const comments = commentStore(review);
   const commentCounts = countByPath(review.state.comments);
 
   const go = (next: number, blockIndex?: number) => {
@@ -181,28 +188,40 @@ function Sections({
     setTarget(blockIndex == null ? null : { blockIndex, nonce: Date.now() });
   };
 
-  const inset = compact ? 12 : 16;
-  const header = (
-    <View
-      style={{
-        gap: 6,
-        padding: inset,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.colors.border,
-      }}
-    >
-      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
-        Section {index + 1} of {count} · {blocks.length} {blocks.length === 1 ? "file" : "files"}
-        {sectionViewed[index] ? " · Viewed" : ""}
-      </Text>
-      <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
-        {section.title}
-      </Text>
-      {section.description === "" ? null : (
-        <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20 }}>{section.description}</Text>
-      )}
-    </View>
+  const inset = narrow ? 12 : 16;
+  const headingFor = (sectionIndex: number) => (
+    <SectionHeading
+      theme={theme}
+      inset={inset}
+      section={record.sections[sectionIndex]}
+      index={sectionIndex}
+      count={count}
+      files={blocksBySection[sectionIndex].length}
+      viewed={sectionViewed[sectionIndex]}
+    />
   );
+
+  if (narrow) {
+    return (
+      <DiffList
+        key={record.createdAt}
+        blocks={allBlocks}
+        source={source}
+        theme={theme}
+        view={view}
+        target={null}
+        fold={fold}
+        viewed={viewed}
+        comments={comments}
+        heading={(blockIndex) => {
+          const sectionIndex = sectionStarts.get(blockIndex);
+          return sectionIndex == null ? null : headingFor(sectionIndex);
+        }}
+      />
+    );
+  }
+
+  const header = headingFor(index);
   const footer = (
     <View
       style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 8, padding: inset }}
@@ -221,11 +240,9 @@ function Sections({
   return (
     <Split
       theme={theme}
-      compact={compact}
       paneWidth={view.paneWidth}
       onResizePane={onResizePane}
-      paneLabel={`Section ${index + 1} of ${count}: ${section.title}`}
-      pane={(close) => (
+      pane={
         <>
           <PaneHeading theme={theme}>
             {sectionViewed.filter(Boolean).length} of {count} sections viewed
@@ -235,10 +252,7 @@ function Sections({
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected: sectionIndex === index }}
-                onPress={() => {
-                  go(sectionIndex);
-                  close();
-                }}
+                onPress={() => go(sectionIndex)}
                 style={({ pressed }) => ({
                   flexDirection: "row",
                   alignItems: "flex-start",
@@ -272,16 +286,13 @@ function Sections({
                   ...blockCounts(block),
                   viewed: isViewed(block),
                   comments: commentCounts.get(block.file.path),
-                  onPress: () => {
-                    go(sectionIndex, blockIndex);
-                    close();
-                  },
+                  onPress: () => go(sectionIndex, blockIndex),
                 }))}
               />
             </View>
           ))}
         </>
-      )}
+      }
     >
       <DiffList
         key={`${record.createdAt}:${section.id}`}
@@ -297,6 +308,39 @@ function Sections({
         footer={footer}
       />
     </Split>
+  );
+}
+
+function SectionHeading({
+  theme,
+  inset,
+  section,
+  index,
+  count,
+  files,
+  viewed,
+}: {
+  theme: PluginTheme;
+  inset: number;
+  section: GuideRecord["sections"][number];
+  index: number;
+  count: number;
+  files: number;
+  viewed: boolean;
+}) {
+  return (
+    <View style={{ gap: 6, padding: inset, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+      <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>
+        Section {index + 1} of {count} · {files} {files === 1 ? "file" : "files"}
+        {viewed ? " · Viewed" : ""}
+      </Text>
+      <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
+        {section.title}
+      </Text>
+      {section.description === "" ? null : (
+        <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20 }}>{section.description}</Text>
+      )}
+    </View>
   );
 }
 

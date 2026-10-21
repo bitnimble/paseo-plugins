@@ -4,16 +4,18 @@ import { Text, View } from "react-native";
 import { DEFAULT_BRANCH_MODE, type DiffMode } from "../shared/protocol";
 import { type ViewOptions, reviewSettings } from "../shared/settings";
 import { IconButton, Tabs } from "./controls";
-import type { CommentStore, FoldCommand } from "./diff-list";
+import type { FoldCommand } from "./diff-list";
+import { ErrorBoundary } from "./error-boundary";
 import { FullView } from "./full-view";
 import { GuidedView } from "./guided-view";
 import { Dropdown, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./menu";
 import { ModeMenu } from "./mode-menu";
 import { MONOSPACE, compactCount } from "./palette";
+import { fitsPane } from "./panes";
 import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
 import { useCodeIntelligence } from "./use-code";
-import { useReview } from "./use-review";
+import { commentStore, useReview } from "./use-review";
 import { isMonacoSupported } from "./web";
 
 type Tab = "guided" | "full";
@@ -27,7 +29,15 @@ const TABS = [
 const VIEW_KEYS = ["layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth"] as const;
 const DEFAULT_SETTINGS = reviewSettings.schema.parse({});
 
-export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWorkspacePanelProps) {
+export function ReviewPanel(props: PluginWorkspacePanelProps) {
+  return (
+    <ErrorBoundary theme={props.theme}>
+      <Review {...props} />
+    </ErrorBoundary>
+  );
+}
+
+function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanelProps) {
   const workspace = useWorkspace(workspaceId, ({ directory, projectKind, diffStat }) => ({
     directory,
     projectKind,
@@ -38,7 +48,9 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
   const [tab, setTab] = useState<Tab>("guided");
   const [menu, setMenu] = useState<Menu | null>(null);
   const [fold, setFold] = useState<FoldCommand | null>(null);
-  const { view, setView } = useViewOptions(layout.compact);
+  const [width, setWidth] = useState<number | null>(null);
+  const narrow = layout.compact || (width != null && !fitsPane(width));
+  const { view, setView } = useViewOptions(narrow);
   const review = useReview({
     workspaceId,
     directory: workspace?.directory ?? null,
@@ -70,11 +82,8 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
         )
       : null;
   const openMenu = (name: Menu) => (open: boolean) => setMenu(open ? name : null);
-  const comments: CommentStore = {
-    comments: review.state.comments,
-    save: review.saveComment,
-    remove: review.deleteComment,
-  };
+  const comments = commentStore(review);
+  const resizePane = (paneWidth: number) => setView({ paneWidth });
   const pickMode = (next: DiffMode) => {
     setMode(next);
     setMenu(null);
@@ -85,7 +94,10 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }}>
+    <View
+      style={{ flex: 1, backgroundColor: theme.colors.surface0 }}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+    >
       {menu == null ? null : <MenuBackdrop onPress={() => setMenu(null)} />}
       <View
         style={{
@@ -127,11 +139,11 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
           theme={theme}
           label="View"
           icon="SlidersHorizontal"
-          align={layout.compact ? "left" : "right"}
+          align={narrow ? "left" : "right"}
           open={menu === "view"}
           onOpenChange={openMenu("view")}
         >
-          {layout.compact ? null : (
+          {narrow ? null : (
             <>
               <MenuHeading theme={theme}>Layout</MenuHeading>
               <MenuItem
@@ -219,9 +231,9 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
       ) : tab === "guided" ? (
         <GuidedView
           theme={theme}
-          compact={layout.compact}
+          narrow={narrow}
           view={view}
-          onResizePane={(paneWidth) => setView({ paneWidth })}
+          onResizePane={resizePane}
           fold={fold}
           review={review}
           openAgent={navigation == null ? undefined : (agentId) => navigation.openAgent({ agentId })}
@@ -229,9 +241,9 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
       ) : live.status === "ready" ? (
         <FullView
           theme={theme}
-          compact={layout.compact}
+          narrow={narrow}
           view={view}
-          onResizePane={(paneWidth) => setView({ paneWidth })}
+          onResizePane={resizePane}
           fold={fold}
           diff={live.diff}
           source={live.source}
@@ -244,8 +256,8 @@ export function ReviewPanel({ theme, layout, workspaceId, navigation }: PluginWo
   );
 }
 
-/** Persisted in the host settings; compact layouts always show the unified layout. */
-function useViewOptions(compact: boolean): { view: ViewOptions; setView(change: Partial<ViewOptions>): void } {
+/** Persisted in the host settings; narrow layouts always show the unified layout. */
+function useViewOptions(narrow: boolean): { view: ViewOptions; setView(change: Partial<ViewOptions>): void } {
   const settings = useSettings(reviewSettings);
   const [pending, setPending] = useState<Partial<ViewOptions>>({});
   const savedAgainst = useRef<string | null>(null);
@@ -254,13 +266,13 @@ function useViewOptions(compact: boolean): { view: ViewOptions; setView(change: 
   // Every file row is memoised on it, so a new object per render re-renders them all.
   const view = useMemo(
     (): ViewOptions => ({
-      layout: compact ? "unified" : (pending.layout ?? layout),
+      layout: narrow ? "unified" : (pending.layout ?? layout),
       wrapLines: pending.wrapLines ?? wrapLines,
       hideWhitespace: pending.hideWhitespace ?? hideWhitespace,
       fileList: pending.fileList ?? fileList,
       paneWidth: pending.paneWidth ?? paneWidth,
     }),
-    [compact, pending, layout, wrapLines, hideWhitespace, fileList, paneWidth],
+    [narrow, pending, layout, wrapLines, hideWhitespace, fileList, paneWidth],
   );
 
   useEffect(() => {

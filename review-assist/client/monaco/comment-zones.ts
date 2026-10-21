@@ -1,4 +1,4 @@
-import { createZoneNode } from "../web";
+import { createDetachedNode } from "../web";
 import type { CodeEditor, ViewZone } from "./api";
 
 export interface ZoneSpec {
@@ -40,7 +40,7 @@ export class CommentZones {
         afterLineNumber: spec.afterLine,
         heightInPx: spec.height,
         ordinal: spec.ordinal,
-        domNode: createZoneNode(),
+        domNode: createDetachedNode(),
         suppressMouseDown: true,
         // A comment on a line folded into "N hidden lines" would otherwise never be drawn.
         showInHiddenAreas: true,

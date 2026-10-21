@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
+import { PanResponder, Pressable, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import type { ViewOptions } from "../shared/settings";
 import { treeRows } from "../shared/tree";
@@ -9,38 +9,47 @@ import { ChangeStats, FileLabel } from "./controls";
 
 const MIN_PANE_WIDTH = 180;
 const MAX_PANE_WIDTH = 640;
+const MIN_DIFF_WIDTH = 480;
 const TREE_INDENT = 12;
 const CHEVRON_SPACE = 22;
 const RESIZE_HANDLE = { reviewresize: "" } as const;
+const RESIZING_HANDLE = { reviewresize: "", reviewresizing: "" } as const;
 
+/** Whether `width` holds the side pane beside a diff still wide enough to read. */
+export function fitsPane(width: number): boolean {
+  return width >= MIN_PANE_WIDTH + MIN_DIFF_WIDTH;
+}
+
+/** A null `pane` leaves the diff alone, without remounting it. */
 export function Split({
   theme,
-  compact,
   paneWidth,
   onResizePane,
-  paneLabel,
   pane,
   children,
 }: {
   theme: PluginTheme;
-  compact: boolean;
   paneWidth: number;
   onResizePane(width: number): void;
-  paneLabel: string;
-  pane: (close: () => void) => ReactNode;
+  pane: ReactNode | null;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const [dragged, setDragged] = useState<number | null>(null);
-  if (!compact) {
-    const width = dragged ?? clampPane(paneWidth);
-    return (
-      <View style={{ flex: 1, flexDirection: "row" }}>
+  const [room, setRoom] = useState(Infinity);
+  const clamp = (width: number) => clampPane(width, room);
+  const width = dragged ?? clamp(paneWidth);
+  return (
+    <View
+      style={{ flex: 1, flexDirection: "row" }}
+      onLayout={(event) => setRoom(event.nativeEvent.layout.width - MIN_DIFF_WIDTH)}
+    >
+      {pane == null ? null : (
         <View style={{ width, borderRightWidth: 1, borderRightColor: theme.colors.border }}>
-          <ScrollView contentContainerStyle={{ paddingBottom: 8 }}>{pane(() => undefined)}</ScrollView>
+          <ScrollView contentContainerStyle={{ paddingBottom: 8 }}>{pane}</ScrollView>
           <ResizeHandle
             theme={theme}
             width={width}
+            clamp={clamp}
             onDrag={setDragged}
             onDrop={(next) => {
               setDragged(null);
@@ -48,41 +57,8 @@ export function Split({
             }}
           />
         </View>
-        <View style={{ flex: 1 }}>{children}</View>
-      </View>
-    );
-  }
-  return (
-    <View style={{ flex: 1 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen(!open)}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          minHeight: 36,
-          paddingHorizontal: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-          backgroundColor: pressed ? theme.colors.surface1 : theme.colors.surface0,
-        })}
-      >
-        <Icon name={open ? "X" : "PanelLeft"} size={14} color={theme.colors.foregroundMuted} />
-        <Text style={{ flex: 1, fontSize: 14, color: theme.colors.foreground }} numberOfLines={1}>
-          {open ? "Close" : paneLabel}
-        </Text>
-      </Pressable>
-      <View style={{ flex: 1 }}>
-        {children}
-        {/* Over the diff, not instead of it, so a comment being written survives a look at the list. */}
-        {open ? (
-          <ScrollView style={{ ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.surface0 }}>
-            {pane(() => setOpen(false))}
-          </ScrollView>
-        ) : null}
-      </View>
+      )}
+      <View style={{ flex: 1 }}>{children}</View>
     </View>
   );
 }
@@ -90,22 +66,24 @@ export function Split({
 function ResizeHandle({
   theme,
   width,
+  clamp,
   onDrag,
   onDrop,
 }: {
   theme: PluginTheme;
   width: number;
+  clamp(width: number): number;
   onDrag(width: number): void;
   onDrop(width: number): void;
 }) {
   const [dragging, setDragging] = useState(false);
   const start = useRef(width);
-  const latest = useRef({ width, onDrag, onDrop });
-  latest.current = { width, onDrag, onDrop };
+  const latest = useRef({ width, clamp, onDrag, onDrop });
+  latest.current = { width, clamp, onDrag, onDrop };
   const responder = useMemo(() => {
     const finish = (dx: number) => {
       setDragging(false);
-      latest.current.onDrop(clampPane(start.current + dx));
+      latest.current.onDrop(latest.current.clamp(start.current + dx));
     };
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -114,7 +92,7 @@ function ResizeHandle({
         start.current = latest.current.width;
         setDragging(true);
       },
-      onPanResponderMove: (_, { dx }) => latest.current.onDrag(clampPane(start.current + dx)),
+      onPanResponderMove: (_, { dx }) => latest.current.onDrag(latest.current.clamp(start.current + dx)),
       onPanResponderRelease: (_, { dx }) => finish(dx),
       onPanResponderTerminate: (_, { dx }) => finish(dx),
     });
@@ -123,7 +101,7 @@ function ResizeHandle({
     <View
       {...responder.panHandlers}
       accessibilityLabel="Resize the file list"
-      dataSet={RESIZE_HANDLE}
+      dataSet={dragging ? RESIZING_HANDLE : RESIZE_HANDLE}
       style={{ position: "absolute", top: 0, bottom: 0, right: -4, width: 7, alignItems: "center", zIndex: 2 }}
     >
       {dragging ? <View style={{ width: 2, flex: 1, backgroundColor: theme.colors.foregroundMuted }} /> : null}
@@ -131,8 +109,8 @@ function ResizeHandle({
   );
 }
 
-function clampPane(width: number): number {
-  return Math.round(Math.min(MAX_PANE_WIDTH, Math.max(MIN_PANE_WIDTH, width)));
+function clampPane(width: number, room: number): number {
+  return Math.round(Math.max(MIN_PANE_WIDTH, Math.min(MAX_PANE_WIDTH, room, width)));
 }
 
 export function PaneHeading({ theme, children }: { theme: PluginTheme; children: ReactNode }) {

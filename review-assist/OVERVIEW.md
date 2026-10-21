@@ -33,6 +33,10 @@ changed in whitespace, as `git diff -w` would, and lists the side pane's files f
 These change how lines are shown, never which section they belong to. Drag the side pane's edge to
 resize it; these choices are saved on the daemon.
 
+When the panel is too narrow to hold the side pane beside a readable diff, as in Paseo's sidebar, the
+pane goes away and the layout is always unified: the guided review shows every section in one
+scroll, each under its title and description, and the full diff shows just the files.
+
 In the web and desktop apps on a computer each file is a Monaco diff editor with collapsible
 unchanged lines. Once you trust the workspace, Ctrl/Cmd+click a symbol to peek at its definition,
 and hover for its type, through a language server the daemon runs for the repository:
@@ -41,6 +45,9 @@ repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no l
 behind them. On phones and tablets, or when Monaco cannot load, the panel shows the diff with
 Paseo's own syntax highlighting instead. Changed images show before and after, as GitHub does; a text
 file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for binary.
+
+Files over 800 changed lines start collapsed. An expanded file without comments stops after 400
+changed lines, fading out under **Show full diff**.
 
 Language servers can run a workspace's code, so as in VS Code they stay off until you trust the
 workspace. A banner offers to, and **View → Hover and go to definition** switches it either way;

@@ -5,10 +5,17 @@ import { type FlatList as NativeFlatList, Pressable, StyleSheet, Text, View } fr
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
 import { type SplitRow, splitRows } from "../shared/display";
-import { type FileBlock, blockCounts } from "../shared/guide";
+import { type FileBlock, blockChanges, blockCounts } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
 import type { ViewOptions } from "../shared/settings";
-import { type ShownHunk, type SideLine, blockHunks } from "../shared/sides";
+import {
+  CAPPED_CHANGES,
+  type ShownHunk,
+  type SideLine,
+  blockHunks,
+  rangeHeader,
+  takeChanges,
+} from "../shared/sides";
 import {
   type Card,
   type CommentDraft,
@@ -20,7 +27,7 @@ import {
   fileCards,
 } from "./comments";
 import { BinaryBody } from "./binary-view";
-import { ChangeStats, FileLabel } from "./controls";
+import { ChangeStats, FileLabel, ShowFullDiff } from "./controls";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
@@ -29,7 +36,7 @@ import { type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
 import { isMonacoSupported } from "./web";
 
-const COLLAPSE_OVER_LINES = 800;
+const COLLAPSE_OVER_CHANGES = 800;
 const MAX_SCROLL_ATTEMPTS = 60;
 const CODE_FONT_SIZE = 12;
 const CODE_LINE_HEIGHT = 18;
@@ -77,6 +84,8 @@ interface DiffListProps {
   readonly viewed?: FileViewing;
   readonly header?: ReactElement;
   readonly footer?: ReactElement;
+  /** Shown above the block at `index`, e.g. where a section starts. */
+  readonly heading?: (index: number) => ReactNode;
 }
 
 interface Folding {
@@ -94,6 +103,7 @@ export function DiffList(props: DiffListProps) {
   const attempts = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [folding, setFolding] = useState<Folding>(() => ({ base: fold?.collapsed ?? null, overrides: new Map() }));
+  const [shownInFull, setShownInFull] = useState<ReadonlySet<string>>(new Set());
   const styles = useMemo(() => createStyles(theme), [theme]);
   const palette = usePalette(theme);
   const [overflowHost, setOverflowHost] = useState<object | null>(null);
@@ -101,13 +111,15 @@ export function DiffList(props: DiffListProps) {
   const latest = useRef({ props, draft });
   latest.current = { props, draft };
 
-  const setCollapsed = useCallback((path: string, collapsed: boolean) => {
-    setFolding(({ base, overrides }) => ({ base, overrides: new Map(overrides).set(path, collapsed) }));
+  const setCollapsed = useCallback((key: string, collapsed: boolean) => {
+    setFolding(({ base, overrides }) => ({ base, overrides: new Map(overrides).set(key, collapsed) }));
   }, []);
 
+  const showFull = useCallback((key: string) => setShownInFull((keys) => new Set(keys).add(key)), []);
+
   const markViewed = useCallback(
-    (block: FileBlock, isViewed: boolean) => {
-      setCollapsed(block.file.path, isViewed);
+    (block: FileBlock, key: string, isViewed: boolean) => {
+      setCollapsed(key, isViewed);
       latest.current.props.viewed?.setViewed(block, isViewed);
     },
     [setCollapsed],
@@ -150,8 +162,8 @@ export function DiffList(props: DiffListProps) {
     return byFile;
   }, [props.comments.comments]);
   const extraData = useMemo(
-    () => [folding, viewed, commentsByFile, draft, palette],
-    [folding, viewed, commentsByFile, draft, palette],
+    () => [folding, shownInFull, viewed, commentsByFile, draft, palette],
+    [folding, shownInFull, viewed, commentsByFile, draft, palette],
   );
 
   useEffect(() => {
@@ -188,21 +200,27 @@ export function DiffList(props: DiffListProps) {
             retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
           }
         }}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const isViewed = viewed?.isViewed(item) ?? null;
+          // By place as well as path: the same file can be a block in several sections.
+          const foldKey = `${index}:${item.file.path}`;
           const collapsed =
-            folding.overrides.get(item.file.path) ??
-            folding.base ??
-            (isViewed === true || collapsedByDefault(item));
-          return (
+            folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
+          const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
+          const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
+          const block = (
             <FileBlockView
               block={item}
+              foldKey={foldKey}
               source={source}
               overflowHost={overflowHost}
               collapsed={collapsed}
+              // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
+              capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
+              onShowFull={showFull}
               viewed={isViewed}
-              comments={commentsByFile.get(item.file.path) ?? NO_COMMENTS}
-              draft={draft != null && draftPath(draft) === item.file.path ? draft : null}
+              comments={fileComments}
+              draft={fileDraft}
               actions={actions}
               onCollapse={setCollapsed}
               onViewed={markViewed}
@@ -211,6 +229,15 @@ export function DiffList(props: DiffListProps) {
               theme={theme}
               palette={palette}
             />
+          );
+          const heading = props.heading?.(index);
+          return heading == null ? (
+            block
+          ) : (
+            <>
+              {heading}
+              {block}
+            </>
           );
         }}
       />
@@ -230,25 +257,24 @@ function newCommentId(): string {
 }
 
 function collapsedByDefault(block: FileBlock): boolean {
-  return block.file.generated || lineCount(block) > COLLAPSE_OVER_LINES;
-}
-
-function lineCount(block: FileBlock): number {
-  return block.chunks.reduce((sum, chunk) => sum + chunk.end - chunk.start, 0);
+  return block.file.generated || blockChanges(block) > COLLAPSE_OVER_CHANGES;
 }
 
 interface FileBlockViewProps {
   readonly block: FileBlock;
+  readonly foldKey: string;
   readonly source: CodeSource;
   readonly overflowHost: object | null;
   readonly collapsed: boolean;
+  readonly capped: boolean;
+  readonly onShowFull: (foldKey: string) => void;
   /** Null hides the checkbox. */
   readonly viewed: boolean | null;
   readonly comments: readonly DraftComment[];
   readonly draft: CommentDraft | null;
   readonly actions: CommentActions;
-  readonly onCollapse: (path: string, collapsed: boolean) => void;
-  readonly onViewed: (block: FileBlock, viewed: boolean) => void;
+  readonly onCollapse: (foldKey: string, collapsed: boolean) => void;
+  readonly onViewed: (block: FileBlock, foldKey: string, viewed: boolean) => void;
   readonly view: ViewOptions;
   readonly styles: DiffStyles;
   readonly theme: PluginTheme;
@@ -257,9 +283,12 @@ interface FileBlockViewProps {
 
 const FileBlockView = memo(function FileBlockView({
   block,
+  foldKey,
   source,
   overflowHost,
   collapsed,
+  capped,
+  onShowFull,
   viewed,
   comments,
   draft,
@@ -299,8 +328,18 @@ const FileBlockView = memo(function FileBlockView({
       blockHunks(block, true).length === 0,
     [block, view.hideWhitespace],
   );
+  const showFull = useMemo(() => (capped ? () => onShowFull(foldKey) : null), [capped, onShowFull, foldKey]);
   const nativeBody = (
-    <NativeBody block={block} source={source} view={view} styles={styles} theme={theme} palette={palette} comments={fileComments} />
+    <NativeBody
+      block={block}
+      source={source}
+      view={view}
+      styles={styles}
+      theme={theme}
+      palette={palette}
+      comments={fileComments}
+      onShowFull={showFull}
+    />
   );
 
   return (
@@ -310,7 +349,7 @@ const FileBlockView = memo(function FileBlockView({
         accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
         accessibilityState={{ expanded: !collapsed }}
         style={({ pressed }) => [styles.fileHeader, pressed && styles.fileHeaderPressed]}
-        onPress={() => onCollapse(file.path, !collapsed)}
+        onPress={() => onCollapse(foldKey, !collapsed)}
       >
         <FileLabel theme={theme} path={file.path} detail={moved ? `from ${file.oldPath}` : undefined} />
         {comments.length === 0 ? null : (
@@ -326,7 +365,7 @@ const FileBlockView = memo(function FileBlockView({
             accessibilityLabel={`Viewed ${file.path}`}
             aria-checked={viewed}
             hitSlop={6}
-            onPress={() => onViewed(block, !viewed)}
+            onPress={() => onViewed(block, foldKey, !viewed)}
             style={({ pressed }) => [styles.viewedToggle, pressed && styles.fileHeaderPressed]}
           >
             <Icon
@@ -366,6 +405,7 @@ const FileBlockView = memo(function FileBlockView({
         palette={palette}
         overflowHost={overflowHost}
         comments={fileComments}
+        onShowFull={showFull}
         fallback={nativeBody}
       />
     );
@@ -380,6 +420,7 @@ function NativeBody({
   theme,
   palette,
   comments,
+  onShowFull,
 }: {
   block: FileBlock;
   source: CodeSource;
@@ -388,8 +429,13 @@ function NativeBody({
   theme: PluginTheme;
   palette: SyntaxPalette | null;
   comments: FileComments;
+  onShowFull: (() => void) | null;
 }) {
   const hunks = useMemo(() => blockHunks(block, view.hideWhitespace), [block, view.hideWhitespace]);
+  const shown = useMemo(
+    () => (onShowFull == null ? { hunks, cut: false } : firstChanges(hunks, CAPPED_CHANGES)),
+    [hunks, onShowFull],
+  );
   const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary);
   const cards = fileCards(comments);
   const unplaced = cards.filter((card) => hunks.every((hunk) => cardLine(card, hunk.lines) < 0));
@@ -397,19 +443,40 @@ function NativeBody({
     <CommentSlot key={cardKey(card)} theme={theme} file={block.file} card={card} comments={comments} />
   );
   const rows = { gutter: gutterWidth(block.file), view, styles, syntax, palette, cards, comments, slot };
-  const body = hunks.map((hunk, i) => <HunkView key={i} hunk={hunk} {...rows} />);
+  const body = shown.hunks.map((hunk, i) => <HunkView key={i} hunk={hunk} {...rows} />);
   return (
     <>
-      {scrollsSideways(view) ? (
-        <ScrollView horizontal contentContainerStyle={styles.sideways}>
-          <View style={styles.sidewaysColumn}>{body}</View>
-        </ScrollView>
-      ) : (
-        body
-      )}
+      <View>
+        {scrollsSideways(view) ? (
+          <ScrollView horizontal contentContainerStyle={styles.sideways}>
+            <View style={styles.sidewaysColumn}>{body}</View>
+          </ScrollView>
+        ) : (
+          body
+        )}
+        {shown.cut && onShowFull != null ? (
+          <ShowFullDiff theme={theme} lines={blockChanges(block)} onPress={onShowFull} />
+        ) : null}
+      </View>
       <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />
     </>
   );
+}
+
+function firstChanges(hunks: readonly ShownHunk[], limit: number): { hunks: readonly ShownHunk[]; cut: boolean } {
+  const shown: ShownHunk[] = [];
+  let changes = 0;
+  for (const hunk of hunks) {
+    const taken = takeChanges(hunk.lines, limit - changes);
+    if (!taken.cut) {
+      shown.push(hunk);
+      changes += taken.changes;
+      continue;
+    }
+    if (taken.lines.some(isChange)) shown.push({ header: rangeHeader(taken.lines), lines: taken.lines });
+    return { hunks: shown, cut: true };
+  }
+  return { hunks: shown, cut: false };
 }
 
 function scrollsSideways(view: ViewOptions): boolean {

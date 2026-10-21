@@ -7,7 +7,7 @@ import { UNCOMMITTED_MODE } from "../shared/protocol";
 import { TreeFiles } from "../server/trees";
 import { type DiffFile, parseDiff } from "../shared/diff";
 import { type FileBlock, fullBlocks } from "../shared/guide";
-import { applyHunks, blockHunks, blockSides } from "../shared/sides";
+import { applyHunks, blockHunks, blockSides, takeChanges } from "../shared/sides";
 import { freshRepo, gitIn, removeScratch, writeIn } from "./repo";
 
 let repo = "";
@@ -132,6 +132,32 @@ test("hiding whitespace shows a whitespace-only edit as unchanged on both sides"
   assert.equal(sides.original.text, sides.modified.text);
   assert.deepEqual(blockHunks(block, true), []);
   assert.notEqual(blockSides(block, "x\ny\n", false).original.text, "x\ny\n");
+});
+
+test("a change limit ends both sides before the first change past it", () => {
+  const diff = parseDiff(
+    ["diff --git a/l.txt b/l.txt", "--- a/l.txt", "+++ b/l.txt", "@@ -1,4 +1,4 @@", "-a", "+A", " b", " c", "-d", "+D", ""].join(
+      "\n",
+    ),
+  );
+  const [block] = fullBlocks(diff);
+  const cut = blockSides(block, "A\nb\nc\nD\n", false, 2);
+  assert.deepEqual([cut.original.text, cut.modified.text, cut.cut], ["a\nb\nc\n", "A\nb\nc\n", true]);
+  const whole = blockSides(block, "A\nb\nc\nD\n", false, 4);
+  assert.deepEqual([whole.original.text, whole.modified.text, whole.cut], ["a\nb\nc\nd\n", "A\nb\nc\nD\n", false]);
+});
+
+test("a change limit inside a rewritten block keeps old and new lines alike", () => {
+  const diff = parseDiff(
+    ["diff --git a/r.txt b/r.txt", "--- a/r.txt", "+++ b/r.txt", "@@ -1,3 +1,3 @@", "-a", "-b", "-c", "+A", "+B", "+C", ""].join("\n"),
+  );
+  const [block] = fullBlocks(diff);
+  const sides = blockSides(block, "A\nB\nC\n", false, 4);
+  assert.deepEqual([sides.original.text, sides.modified.text, sides.cut], ["a\nb\n", "A\nB\n", true]);
+  assert.deepEqual(
+    takeChanges(block.file.hunks[0].lines, 3).lines.map((line) => `${line.kind}:${line.text}`),
+    ["del:a", "del:b", "add:A"],
+  );
 });
 
 test("huge files are rebuilt and shown without overflowing the stack", () => {

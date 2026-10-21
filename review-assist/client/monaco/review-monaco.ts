@@ -1,8 +1,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { hashText } from "../../shared/hash";
 import type { LspMethod, MonacoAsset } from "../../shared/protocol";
-import { injectMonaco } from "../web";
+import { createDetachedNode, injectMonaco } from "../web";
 import type {
+  DiffEditor,
+  EditorContainer,
   IDisposable,
   Monaco,
   MonacoHover,
@@ -38,7 +40,7 @@ interface ModelOwner {
   readonly root: string;
   readonly tree: string | null;
   readonly path: string;
-  /** Per model line, its line in the tree's file; null when the model is that file. */
+  /** Per model line, its line in the tree's file; null when they are the same lines. */
   readonly treeLines: readonly (number | null)[] | null;
 }
 
@@ -60,7 +62,7 @@ class ReviewMonaco {
   });
   private readonly owners = new Map<string, ModelOwner>();
   private readonly modified = new Map<string, SharedModel>();
-  /** Models holding exactly a tree's file, by tree and path, for peeks into it. */
+  /** Models holding a tree's file line for line, by tree and path, for peeks into it. */
   private readonly treeModels = new Map<string, string>();
   private readonly targets = new Map<string, MonacoModel>();
   private readonly registrations: IDisposable[] = [];
@@ -107,9 +109,17 @@ class ReviewMonaco {
     monaco.editor.setTheme(THEME_NAME);
   }
 
+  createDiffEditor(monaco: Monaco, container: EditorContainer, options: Readonly<Record<string, unknown>>): DiffEditor {
+    const diff = monaco.editor.createDiffEditor(container, options);
+    // Re-aims Monaco's global hover-delegate factory, which the diff editor left on its own instantiation
+    // service: once that is disposed, lazy widgets in every other editor throw "InstantiationService has been disposed".
+    monaco.editor.create(createDetachedNode(), {}).dispose();
+    return diff;
+  }
+
   /**
    * Shared by every editor showing the same text of this file; pair each call with
-   * `releaseModified`. `treeLines` maps each line to the tree's file, null when `text` is that file.
+   * `releaseModified`. `treeLines` maps each line to the tree's file, null when `text` has its lines.
    */
   acquireModified(
     monaco: Monaco,

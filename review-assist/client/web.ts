@@ -43,6 +43,7 @@ const EXTRA_CSS = `
 .review-comment-glyph { cursor: pointer; opacity: 0.8; }
 .review-comment-glyph:hover { opacity: 1; }
 [data-reviewresize] { cursor: col-resize; }
+:root:has([data-reviewresizing]) * { user-select: none; cursor: col-resize; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
 `;
@@ -62,7 +63,7 @@ export function asOverflowHost(node: object): EditorContainer {
   return asEditorContainer(node);
 }
 
-export function createZoneNode(): EditorContainer {
+export function createDetachedNode(): EditorContainer {
   return asEditorContainer(document.createElement("div"));
 }
 

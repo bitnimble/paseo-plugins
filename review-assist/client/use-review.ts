@@ -25,6 +25,7 @@ import {
   trustRpc,
   viewedRpc,
 } from "../shared/protocol";
+import type { CommentStore } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
 
 const JOB_POLL_MS = 2_000;
@@ -71,6 +72,10 @@ export interface Review {
   setTrust(trusted: boolean): void;
   /** Resolves to an error message, or null once the agent has the comments. */
   submit(input: { agentId: string; message: string }): Promise<string | null>;
+}
+
+export function commentStore(review: Review): CommentStore {
+  return { comments: review.state.comments, save: review.saveComment, remove: review.deleteComment };
 }
 
 /**

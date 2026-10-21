@@ -1,10 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
-import type { FileBlock } from "../shared/guide";
+import { detailsOf } from "../shared/errors";
+import { type FileBlock, blockChanges, blockLines } from "../shared/guide";
 import type { ViewOptions } from "../shared/settings";
-import { type BlockSides, CONTEXT_LINES, type Side, blockSides } from "../shared/sides";
+import { type BlockSides, CAPPED_CHANGES, CONTEXT_LINES, type Side, blockSides } from "../shared/sides";
 import { type Card, CommentSlot, type FileComments, UnplacedCards, cardKey, cardLine, fileCards } from "./comments";
+import { ShowFullDiff } from "./controls";
 import type { CodeEditor, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
@@ -46,14 +48,23 @@ interface MonacoFileDiffProps {
   /** Outside the list's transformed scroll content, which offsets the diff editor's `position: fixed` hovers. */
   readonly overflowHost: object;
   readonly comments: FileComments;
+  /** Null shows every change; otherwise the editor stops after `CAPPED_CHANGES` with this to show the rest. */
+  readonly onShowFull: (() => void) | null;
   readonly fallback: ReactNode;
 }
 
 export function MonacoFileDiff(props: MonacoFileDiffProps) {
-  const { block, text, view, theme, palette, overflowHost, comments, fallback } = props;
+  const { block, text, view, theme, palette, overflowHost, comments, onShowFull, fallback } = props;
   const { file } = block;
-  const sides = useStableSides(useMemo(() => blockSides(block, text, view.hideWhitespace), [block, text, view.hideWhitespace]));
-  const single: SideName | null = sides.original.text === "" ? "modified" : sides.modified.text === "" ? "original" : null;
+  const capped = onShowFull != null;
+  const sides = useStableSides(
+    useMemo(
+      () => withoutFinalNewline(blockSides(block, text, view.hideWhitespace, capped ? CAPPED_CHANGES : Infinity)),
+      [block, text, view.hideWhitespace, capped],
+    ),
+  );
+  const single: SideName | null =
+    sides.original.lines.length === 0 ? "modified" : sides.modified.lines.length === 0 ? "original" : null;
   const [container, setContainer] = useState<object | null>(null);
   const [editors, setEditors] = useState<Editors | null>(null);
   const [height, setHeight] = useState(() => estimateHeight(block));
@@ -79,7 +90,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
           const node = asEditorContainer(container);
           const options = { ...editorOptions(view), overflowWidgetsDomNode: asOverflowHost(overflowHost) };
           if (single == null) {
-            const diff = monaco.editor.createDiffEditor(node, options);
+            const diff = reviewMonaco.createDiffEditor(monaco, node, options);
             created = { monaco, diff, original: diff.getOriginalEditor(), modified: diff.getModifiedEditor() };
           } else {
             const editor = monaco.editor.create(node, options);
@@ -91,7 +102,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
             };
           }
           const inner = innerEditors(created);
-          const measure = () => setHeight(Math.max(...inner.map((editor) => editor.getContentHeight())) + SCROLLBAR_SIZE);
+          const measure = () => setHeight(Math.max(...inner.map((editor) => editor.getContentHeight())));
           listeners.push(...inner.map((editor) => editor.onDidContentSizeChange(measure)));
           measure();
           zones.current = new CommentZones((key, top) =>
@@ -116,8 +127,12 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       for (const listener of listeners) listener.dispose();
       if (created == null) return;
       disposed.current.add(created);
-      if (created.diff != null) created.diff.dispose();
-      else for (const editor of innerEditors(created)) editor.dispose();
+      try {
+        if (created.diff != null) created.diff.dispose();
+        else for (const editor of innerEditors(created)) editor.dispose();
+      } catch (error) {
+        console.error(`[review-assist] Monaco could not dispose the editor for ${file.path}\n\n${detailsOf(error)}`);
+      }
     };
   }, [container, overflowHost, single]);
 
@@ -131,7 +146,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     let decorations: DecorationsCollection | null = null;
     try {
       if (editors.modified != null) {
-        modified = reviewMonaco.acquireModified(monaco, source, block.file.path, sides.modified.text, treeLines(sides.modified));
+        modified = reviewMonaco.acquireModified(monaco, source, block.file.path, sides.modified.text, treeLines(sides.modified, sides.cut));
       }
       if (editors.original != null) {
         original = reviewMonaco.originalModel(monaco, block.file.oldPath ?? block.file.path, sides.original.text);
@@ -244,32 +259,45 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
   if (failed) return <>{fallback}</>;
   return (
     <View>
-      <View ref={(node) => setContainer(node)} style={{ height }} dataSet={CODE_SURFACE} />
-      {placements.map(({ card }) => {
-        const key = cardKey(card);
-        const top = cardTops.get(key);
-        if (top == null) return null;
-        return (
-          <View
-            key={key}
-            style={{ position: "absolute", top, left: 0, right: 0 }}
-            onLayout={(event) => {
-              const measured = Math.ceil(event.nativeEvent.layout.height);
-              setCardHeights((heights) => (heights.get(key) === measured ? heights : new Map(heights).set(key, measured)));
-            }}
-          >
-            <CommentSlot theme={theme} file={file} card={card} comments={comments} />
-          </View>
-        );
-      })}
+      <View>
+        <View ref={(node) => setContainer(node)} style={{ height }} dataSet={CODE_SURFACE} />
+        {placements.map(({ card }) => {
+          const key = cardKey(card);
+          const top = cardTops.get(key);
+          if (top == null) return null;
+          return (
+            <View
+              key={key}
+              style={{ position: "absolute", top, left: 0, right: 0 }}
+              onLayout={(event) => {
+                const measured = Math.ceil(event.nativeEvent.layout.height);
+                setCardHeights((heights) => (heights.get(key) === measured ? heights : new Map(heights).set(key, measured)));
+              }}
+            >
+              <CommentSlot theme={theme} file={file} card={card} comments={comments} />
+            </View>
+          );
+        })}
+        {sides.cut && onShowFull != null ? (
+          <ShowFullDiff theme={theme} lines={blockChanges(block)} onPress={onShowFull} />
+        ) : null}
+      </View>
       <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />
     </View>
   );
 }
 
 export function estimateHeight(block: FileBlock): number {
-  const lines = block.chunks.reduce((sum, chunk) => sum + chunk.end - chunk.start, 0);
-  return Math.min(lines, 40) * LINE_HEIGHT + SCROLLBAR_SIZE;
+  return Math.min(blockLines(block), 40) * LINE_HEIGHT;
+}
+
+/** Monaco shows a blank line after a final newline; kept where it is the change. */
+function withoutFinalNewline(sides: BlockSides): BlockSides {
+  const { original, modified } = sides;
+  const ends = (side: Side) => side.text === "" || side.text.endsWith("\n");
+  if (!ends(original) || !ends(modified)) return sides;
+  const trim = (side: Side): Side => (side.text === "" ? side : { ...side, text: side.text.slice(0, -1) });
+  return { ...sides, original: trim(original), modified: trim(modified) };
 }
 
 /** The previous sides while the content is the same, so a diff refresh leaves the editor alone. */
@@ -282,14 +310,15 @@ function useStableSides(next: BlockSides): BlockSides {
 function sameSides(a: BlockSides, b: BlockSides): boolean {
   const sameSide = (x: Side, y: Side) =>
     x.text === y.text &&
+    x.lines.length === y.lines.length &&
     x.lines.every((line, i) => line.oldNumber === y.lines[i].oldNumber && line.newNumber === y.lines[i].newNumber);
   return sameSide(a.original, b.original) && sameSide(a.modified, b.modified);
 }
 
 /** Null when the side is the tree's file itself. */
-function treeLines(side: Side): (number | null)[] | null {
+function treeLines(side: Side, cut: boolean): (number | null)[] | null {
   const numbers = side.lines.map((line) => line.newNumber);
-  return numbers.every((number, i) => number === i + 1) ? null : numbers;
+  return !cut && numbers.every((number, i) => number === i + 1) ? null : numbers;
 }
 
 function realNumbers(side: Side, numbering: "old" | "new"): (line: number) => string {
@@ -357,6 +386,7 @@ function editorOptions(view: ViewOptions): Readonly<Record<string, unknown>> {
       vertical: "hidden",
       alwaysConsumeMouseWheel: false,
       horizontalScrollbarSize: SCROLLBAR_SIZE,
+      ignoreHorizontalScrollbarInContentHeight: true,
       useShadows: false,
     },
     experimental: { showMoves: true },
