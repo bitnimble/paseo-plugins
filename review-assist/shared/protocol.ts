@@ -27,6 +27,7 @@ const target = { directory: z.string(), mode: diffModeSchema };
 const fileFactsSchema = z.object({
   generated: z.record(z.string(), z.boolean()),
   sizes: z.record(z.string(), z.object({ before: z.number().int(), after: z.number().int() })),
+  lfs: z.array(z.string()).readonly().default([]),
 }) satisfies z.ZodType<FileFacts>;
 
 export const diffRpc = defineRpc({
@@ -72,10 +73,19 @@ const blobPreviewSchema = z.discriminatedUnion("status", [
 ]);
 export type BlobPreview = z.infer<typeof blobPreviewSchema>;
 
-/** One side of a file git called binary. `blob` is read when `tree` is gone. */
+/**
+ * One side of a file git called binary. `blob` is read when `tree` is gone. `lfs` reads the content an
+ * LFS pointer names, downloading it if it isn't cached.
+ */
 export const blobRpc = defineRpc({
   name: "review.blob",
-  input: z.object({ root: z.string(), tree: z.string(), path: z.string(), blob: z.string().nullable() }),
+  input: z.object({
+    root: z.string(),
+    tree: z.string(),
+    path: z.string(),
+    blob: z.string().nullable(),
+    lfs: z.boolean().default(false),
+  }),
   output: blobPreviewSchema,
 });
 

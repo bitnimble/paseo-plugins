@@ -1,6 +1,6 @@
 import type { HighlightStyle } from "@getpaseo/highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { hexTint, isDark } from "../palette";
+import { IN_SCOPE_ALPHA, hexTint, isDark } from "../palette";
 import type { MonacoThemeData } from "./api";
 
 export const THEME_NAME = "paseo-review";
@@ -54,6 +54,8 @@ export function monacoTheme(theme: PluginTheme, palette: SyntaxPalette): MonacoT
       "editorLineNumber.activeForeground": solid(colors.foreground),
       "editor.lineHighlightBackground": hexTint(colors.surface0, 0),
       "editor.lineHighlightBorder": hexTint(colors.surface0, 0),
+      "editor.rangeHighlightBackground": hexTint(colors.foreground, IN_SCOPE_ALPHA.fill),
+      "editor.rangeHighlightBorder": hexTint(colors.foreground, IN_SCOPE_ALPHA.edge),
       focusBorder: hexTint(colors.accent, 0.6),
       "diffEditor.insertedLineBackground": hexTint(colors.statusSuccess, 0.15),
       "diffEditor.removedLineBackground": hexTint(colors.statusDanger, 0.1),

@@ -20,6 +20,7 @@ const OBJECT_ID = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const BLOB_PREFIX = /^[0-9a-f]{7,64}$/;
 const MAX_BLOB_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 4 * 1024 * 1024;
+const LFS_POINTER = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\n(?:.*\n)*?size (\d+)\n/;
 const IMAGE_TYPES: Readonly<Record<string, string>> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -82,8 +83,12 @@ export async function readDiff(directory: string, mode: DiffMode): Promise<DiffS
     );
     const tree = (await git(root, ["write-tree"], { env })).trim();
     const { files } = parseDiff(raw);
-    const [generated, sizes] = await Promise.all([generatedAttributes(root, files), binarySizes(root, files)]);
-    const facts = { generated, sizes };
+    const [generated, sizes, lfs] = await Promise.all([
+      generatedAttributes(root, files),
+      binarySizes(root, files),
+      lfsPaths(root, files),
+    ]);
+    const facts = { generated, sizes, lfs };
     return { raw, hash: createHash("sha256").update(raw).digest("hex").slice(0, 32), base, root, tree, facts };
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -101,6 +106,18 @@ async function generatedAttributes(root: string, files: readonly DiffFile[]): Pr
     else if (value === "unset" || value === "false") generated[fields[i]] = false;
   }
   return generated;
+}
+
+async function lfsPaths(root: string, files: readonly DiffFile[]): Promise<string[]> {
+  const candidates = files.filter((file) => !file.binary);
+  if (candidates.length === 0) return [];
+  const input = candidates.map(({ path }) => `${path}\0`).join("");
+  const fields = (await git(root, ["check-attr", "-z", "--stdin", "filter"], { input })).split("\0");
+  const paths: string[] = [];
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    if (fields[i + 2] === "lfs") paths.push(fields[i]);
+  }
+  return paths;
 }
 
 async function binarySizes(root: string, files: readonly DiffFile[]): Promise<FileFacts["sizes"]> {
@@ -131,12 +148,27 @@ export async function readBlob(root: string, tree: string, path: string): Promis
   return text;
 }
 
-export async function previewBlob(root: string, tree: string, path: string, blob: string | null): Promise<BlobPreview> {
+export async function previewBlob(
+  root: string,
+  tree: string,
+  path: string,
+  blob: string | null,
+  lfs = false,
+): Promise<BlobPreview> {
   const object = await blobObject(root, tree, path, blob);
   if (Number(await git(root, ["cat-file", "-s", object])) > MAX_PREVIEW_BYTES) {
     return { status: "binary" };
   }
-  const bytes = await gitBytes(root, ["cat-file", "blob", object]);
+  let bytes = await gitBytes(root, ["cat-file", "blob", object]);
+  const pointer = lfs ? LFS_POINTER.exec(bytes.toString("utf8")) : null;
+  if (pointer != null) {
+    if (Number(pointer[1]) > MAX_PREVIEW_BYTES) return { status: "binary" };
+    bytes = await gitBytes(root, ["lfs", "smudge", "--", path], {
+      input: bytes,
+      // A skip set for checkouts would hand the pointer back unchanged.
+      env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "0" },
+    });
+  }
   const mime = IMAGE_TYPES[extname(path).toLowerCase()];
   if (mime != null) {
     return { status: "image", uri: `data:${mime};base64,${bytes.toString("base64")}`, bytes: bytes.length };
@@ -231,12 +263,25 @@ async function revParse(root: string, ref: string): Promise<string | null> {
   );
 }
 
-function gitBytes(cwd: string, args: readonly string[]): Promise<Buffer> {
+function gitBytes(
+  cwd: string,
+  args: readonly string[],
+  options: { env?: NodeJS.ProcessEnv; input?: Buffer } = {},
+): Promise<Buffer> {
   return new Promise((done, fail) => {
-    execFile("git", args, { cwd, encoding: "buffer", maxBuffer: 2 * MAX_PREVIEW_BYTES }, (error, stdout, stderr) => {
-      if (error != null) fail(new Error(stderr.toString().trim() || error.message));
-      else done(stdout);
-    });
+    const child = execFile(
+      "git",
+      args,
+      { cwd, env: options.env ?? process.env, encoding: "buffer", maxBuffer: 2 * MAX_PREVIEW_BYTES },
+      (error, stdout, stderr) => {
+        if (error != null) fail(new Error(stderr.toString().trim() || error.message));
+        else done(stdout);
+      },
+    );
+    if (options.input != null) {
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(options.input);
+    }
   });
 }
 

@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { type CommentTarget, commentLine, commentTarget, rangeLabel } from "../shared/comments";
 import type { DiffFile } from "../shared/diff";
@@ -8,6 +8,7 @@ import { type FileBlock, isWholeFile } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
 import type { SideLine } from "../shared/sides";
 import { Button } from "./controls";
+import { CentreAboveKeyboard } from "./keyboard";
 
 export type CommentDraft =
   | {
@@ -50,6 +51,39 @@ export function cardLine(card: Card, lines: readonly SideLine[]): number {
     return card.lines === lines ? card.end : -1;
   }
   return commentLine(card, lines);
+}
+
+export function draftTarget(file: DiffFile, draft: CommentDraft): CommentTarget | null {
+  return draft.kind === "edit" ? draft.comment : commentTarget(file, draft.lines, draft.start, draft.end);
+}
+
+/** What `draft` covers, if shown in `views`: a new comment belongs to the lines it was opened on. */
+export function draftScope(
+  file: DiffFile,
+  draft: CommentDraft | null,
+  views: readonly (readonly SideLine[])[],
+): CommentTarget | null {
+  if (draft == null || (draft.kind === "new" && !views.includes(draft.lines))) return null;
+  return draftTarget(file, draft);
+}
+
+export function inScope(target: CommentTarget, line: Pick<SideLine, "oldNumber" | "newNumber">): boolean {
+  const number = target.side === "new" ? line.newNumber : line.oldNumber;
+  return number != null && number >= target.startLine && number <= target.lineNumber;
+}
+
+/** Where an item sits in the run from the first to the last item an open comment covers; null outside it. */
+export type ScopeEdge = { readonly first: boolean; readonly last: boolean } | null;
+
+export function scopeEdges<T>(items: readonly T[], covered: (item: T) => boolean): ScopeEdge[] {
+  let first = -1;
+  let last = -1;
+  items.forEach((item, i) => {
+    if (!covered(item)) return;
+    if (first < 0) first = i;
+    last = i;
+  });
+  return items.map((_, i) => (first < 0 || i < first || i > last ? null : { first: i === first, last: i === last }));
 }
 
 export function fileCards(comments: FileComments): Card[] {
@@ -111,7 +145,7 @@ export function CommentSlot({
       />
     );
   }
-  const target = card.kind === "edit" ? card.comment : commentTarget(file, card.lines, card.start, card.end);
+  const target = draftTarget(file, card);
   if (target == null) return null;
   return (
     <CommentComposer
@@ -167,8 +201,14 @@ function CommentComposer({
   onSubmit(body: string): void;
 }) {
   const [body, setBody] = useState(initialBody);
+  const card = useRef<View>(null);
+  const centre = useContext(CentreAboveKeyboard);
+  useEffect(
+    () => (card.current == null ? undefined : centre(card.current)),
+    [centre, target.side, target.lineNumber],
+  );
   return (
-    <View style={cardStyle(theme)}>
+    <View ref={card} style={cardStyle(theme)}>
       <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>
         {rangeLabel(target)}
         {target.side === "old" ? " of the old file" : ""}

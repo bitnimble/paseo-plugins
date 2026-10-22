@@ -100,9 +100,9 @@ export default function contribute(server: PluginServerContext): () => Promise<v
       failed,
     );
   });
-  server.handle(blobRpc, async ({ root, tree, path, blob }) => {
+  server.handle(blobRpc, async ({ root, tree, path, blob, lfs }) => {
     if (!(await admit(root))) return unknownRoot(root);
-    return previewBlob(root, tree, path, blob).catch(failed);
+    return previewBlob(root, tree, path, blob, lfs).catch(failed);
   });
   server.handle(highlightRpc, async (input) => {
     if (!(await admit(input.root))) return unknownRoot(input.root);

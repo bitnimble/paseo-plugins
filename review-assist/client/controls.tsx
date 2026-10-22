@@ -316,7 +316,7 @@ export function ChangeStats({
   const icon = changeIcon(theme, file.status);
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      {file.binary ? (
+      {file.binary || file.lfs ? (
         <SizeChange theme={theme} change={file.sizeChange} />
       ) : (
         <View style={{ flexDirection: "row", gap: 4 }}>

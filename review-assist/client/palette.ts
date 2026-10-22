@@ -28,6 +28,8 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+export const IN_SCOPE_ALPHA = { fill: 0.1, edge: 0.5 } as const;
+
 /** Transparent for colors that are neither hex nor rgb. */
 export function tint(color: string, alpha: number): string {
   const rgb = parseColor(color);

@@ -31,9 +31,11 @@ export interface DiffFile {
   readonly oldBlob: string | null;
   readonly newBlob: string | null;
   readonly binary: boolean;
+  /** Stored in Git LFS, so the patch only changes its pointer. */
+  readonly lfs: boolean;
   /** Kept out of the agent's prompt and shown in its own section. */
   readonly generated: boolean;
-  /** Bytes gained or lost, for a binary file whose sizes are known. */
+  /** Bytes gained or lost, for a binary or LFS file whose sizes are known. */
   readonly sizeChange: number | null;
   readonly header: readonly string[];
   readonly hunks: readonly DiffHunk[];
@@ -53,9 +55,11 @@ export interface FileFacts {
   readonly generated: Readonly<Record<string, boolean>>;
   /** Binary files' sizes in bytes, 0 for a side the file does not have. */
   readonly sizes: Readonly<Record<string, { readonly before: number; readonly after: number }>>;
+  /** Paths whose `filter` attribute is `lfs`. */
+  readonly lfs: readonly string[];
 }
 
-export const NO_FACTS: FileFacts = { generated: {}, sizes: {} };
+export const NO_FACTS: FileFacts = { generated: {}, sizes: {}, lfs: [] };
 
 const LOCKFILES = new Set([
   "Cargo.lock",
@@ -79,7 +83,8 @@ const LOCKFILES = new Set([
 ]);
 
 // The heading is copied verbatim from the source, so it can hold \r, U+2028 and U+2029, which `.` skips.
-const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@([\s\S]*)$/;
+const LFS_POINTER_VERSION = "version https://git-lfs.github.com/spec/v1";
+const HUNK_HEADER =/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@([\s\S]*)$/;
 
 /** Parses `git diff` output losslessly: `serializeDiff(parseDiff(raw)) === raw`. */
 export function parseDiff(raw: string, facts: FileFacts = NO_FACTS): ParsedDiff {
@@ -267,8 +272,11 @@ function describeFile(
   }
   const path = newPath ?? oldPath ?? "";
   const generated = Object.hasOwn(facts.generated, path) ? facts.generated[path] : looksGenerated(path);
-  const sizes = Object.hasOwn(facts.sizes, path) ? facts.sizes[path] : null;
-  const sizeChange = binary && sizes != null ? sizes.after - sizes.before : null;
+  // Content committed before LFS tracked its path diffs as itself, not as a pointer.
+  const pointers = !binary && facts.lfs.includes(path) ? pointerSizes(hunks) : null;
+  const lfs = pointers != null;
+  const sizes = pointers ?? (Object.hasOwn(facts.sizes, path) ? facts.sizes[path] : null);
+  const sizeChange = (binary || lfs) && sizes != null ? sizes.after - sizes.before : null;
   return {
     index,
     path,
@@ -278,6 +286,7 @@ function describeFile(
     oldBlob,
     newBlob,
     binary,
+    lfs,
     generated,
     sizeChange,
     header,
@@ -285,6 +294,22 @@ function describeFile(
     additions,
     deletions,
   };
+}
+
+/** Each side's `size` line, 0 for a side the file does not have. */
+/** Null unless each side the patch shows is an LFS pointer; a side it lacks is 0 bytes. */
+function pointerSizes(hunks: readonly DiffHunk[]): { before: number; after: number } | null {
+  if (hunks.length === 0) return null;
+  const sizeOf = (kinds: readonly DiffLineKind[]): number | null => {
+    const lines = hunks.flatMap((hunk) => hunk.lines.filter((line) => kinds.includes(line.kind)));
+    if (lines.length === 0) return 0;
+    if (lines[0].text !== LFS_POINTER_VERSION) return null;
+    const size = lines.map((line) => /^size (\d+)$/.exec(line.text)).find((match) => match != null);
+    return size == null ? null : Number(size[1]);
+  };
+  const before = sizeOf(["context", "del"]);
+  const after = sizeOf(["context", "add"]);
+  return before == null || after == null ? null : { before, after };
 }
 
 function blobId(id: string | undefined): string | null {

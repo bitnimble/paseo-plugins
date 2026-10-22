@@ -6,29 +6,82 @@ import { Image, Text, type TextStyle, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 import { type BlobPreview, blobRpc } from "../shared/protocol";
+import { Button } from "./controls";
 import type { CodeSource } from "./monaco/review-monaco";
 import { formatBytes } from "./palette";
 
 const MAX_IMAGE_HEIGHT = 480;
 
-type Side = BlobPreview | { readonly status: "loading" };
+/** `idle` until an LFS file's content is asked for. */
+type Side = BlobPreview | { readonly status: "loading" } | { readonly status: "idle" };
 
-export function BinaryBody({
-  theme,
-  file,
-  source,
-  noteStyle,
-}: {
+interface BodyProps {
   theme: PluginTheme;
   file: DiffFile;
   source: CodeSource;
   noteStyle: TextStyle;
+}
+
+export function BinaryBody({ theme, file, source, noteStyle }: BodyProps) {
+  const before = useBlob(source, source.base, file.oldPath, null, { lfs: false, enabled: true });
+  const after = useBlob(source, source.tree, file.newPath, file.newBlob, { lfs: false, enabled: true });
+  return (
+    <Comparison
+      theme={theme}
+      before={before}
+      after={after}
+      noteStyle={noteStyle}
+      loading="Loading…"
+      text="Diff turned off for this file by .gitattributes."
+    />
+  );
+}
+
+export function LfsBody({ theme, file, source, noteStyle }: BodyProps) {
+  const [requested, setRequested] = useState(false);
+  const before = useBlob(source, source.base, file.oldPath, null, { lfs: true, enabled: requested });
+  const after = useBlob(source, source.tree, file.newPath, file.newBlob, { lfs: true, enabled: requested });
+  if ([before, after].some((side) => side?.status === "idle")) {
+    return (
+      <View style={{ paddingBottom: 12 }}>
+        <Text style={noteStyle}>Stored in Git LFS, so the diff only changes its pointer.</Text>
+        <View style={{ paddingHorizontal: 12, alignItems: "flex-start" }}>
+          <Button theme={theme} label="Fetch and compare" icon="Download" size="xs" onPress={() => setRequested(true)} />
+        </View>
+      </View>
+    );
+  }
+  return (
+    <Comparison
+      theme={theme}
+      before={before}
+      after={after}
+      noteStyle={noteStyle}
+      loading="Fetching from Git LFS…"
+      text="Text stored in Git LFS isn't compared here."
+    />
+  );
+}
+
+/** `loading` and `text` are the notes shown while the sides load and when they turn out to be text. */
+function Comparison({
+  theme,
+  before,
+  after,
+  noteStyle,
+  loading,
+  text,
+}: {
+  theme: PluginTheme;
+  before: Side | null;
+  after: Side | null;
+  noteStyle: TextStyle;
+  loading: string;
+  text: string;
 }) {
-  const before = useBlob(source, source.base, file.oldPath, null);
-  const after = useBlob(source, source.tree, file.newPath, file.newBlob);
   const sides = [before, after];
   if (sides.some((side) => side?.status === "loading")) {
-    return <Text style={noteStyle}>Loading…</Text>;
+    return <Text style={noteStyle}>{loading}</Text>;
   }
   if (sides.some((side) => side?.status === "image")) {
     return (
@@ -38,12 +91,10 @@ export function BinaryBody({
       </View>
     );
   }
+  const failed = sides.find((side) => side?.status === "failed");
+  if (failed?.status === "failed") return <Text style={noteStyle}>{failed.error}</Text>;
   const hiddenText = sides.some((side) => side?.status === "text");
-  return (
-    <Text style={noteStyle}>
-      {hiddenText ? "Diff turned off for this file by .gitattributes." : "Binary file not shown."}
-    </Text>
-  );
+  return <Text style={noteStyle}>{hiddenText ? text : "Binary file not shown."}</Text>;
 }
 
 function ImageSide({ theme, label, side, edge }: { theme: PluginTheme; label: string; side: Side; edge: string }) {
@@ -86,17 +137,24 @@ function ImageSide({ theme, label, side, edge }: { theme: PluginTheme; label: st
 }
 
 /** Null for a side the file does not have. */
-function useBlob(source: CodeSource, tree: string, path: string | null, blob: string | null): Side | null {
+function useBlob(
+  source: CodeSource,
+  tree: string,
+  path: string | null,
+  blob: string | null,
+  { lfs, enabled }: { lfs: boolean; enabled: boolean },
+): Side | null {
   const read = useRpc(blobRpc);
   const query = useQuery({
-    queryKey: ["review-blob", source.root, blob ?? tree, path],
-    queryFn: () => read({ root: source.root, tree, path: path ?? "", blob }),
-    enabled: path != null,
+    queryKey: ["review-blob", source.root, blob ?? tree, path, lfs],
+    queryFn: () => read({ root: source.root, tree, path: path ?? "", blob, lfs }),
+    enabled: path != null && enabled,
     staleTime: Infinity,
   });
   if (path == null) return null;
   if (query.data != null) return query.data;
-  return query.error == null ? { status: "loading" } : { status: "failed", error: messageOf(query.error) };
+  if (query.error != null) return { status: "failed", error: messageOf(query.error) };
+  return enabled ? { status: "loading" } : { status: "idle" };
 }
 
 type ImageSize = { width: number; height: number } | "failed";

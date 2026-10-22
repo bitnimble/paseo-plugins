@@ -189,6 +189,48 @@ test("binary sides preview as images, hidden text or plain binary", async () => 
   await assert.rejects(previewBlob(dir, tree, "logo.png", "--output=x"), /Not an object id/);
 });
 
+test("LFS files diff as pointers and preview the content they name", async (t) => {
+  const dir = freshRepo();
+  try {
+    gitIn(dir, "lfs", "install", "--local");
+  } catch {
+    t.skip("git-lfs is not installed");
+    return;
+  }
+  const png = (...tail: number[]) => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...tail]);
+  const [old, next] = [png(1), png(2, 3, 4)];
+  write("notes.txt", "plain\n", dir);
+  gitIn(dir, "add", "-A");
+  gitIn(dir, "commit", "-q", "-m", "before lfs");
+  write(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n*.txt filter=lfs diff=lfs merge=lfs -text\n", dir);
+  write("logo.png", old, dir);
+  // Not -A: within the same second git re-reads notes.txt and would store it as a pointer already.
+  gitIn(dir, "add", ".gitattributes", "logo.png");
+  gitIn(dir, "commit", "-q", "-m", "base");
+  write("logo.png", next, dir);
+  write("notes.txt", "plain\nmore\n", dir);
+  const oid = "a".repeat(64);
+  write("huge.png", `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize 99999999\n`, dir);
+
+  const { raw, tree, base, facts } = await readDiff(dir, UNCOMMITTED_MODE);
+  const files = new Map(parseDiff(raw, facts).files.map((file) => [file.path, file]));
+  assert.deepEqual(
+    ["logo.png", "huge.png", "notes.txt"].map((path) => {
+      const file = files.get(path);
+      return [file?.binary, file?.lfs, file?.sizeChange];
+    }),
+    [
+      [false, true, 2],
+      [false, true, 99999999],
+      [false, false, null],
+    ],
+  );
+  const image = (bytes: Buffer) => ({ status: "image", uri: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length });
+  assert.deepEqual(await previewBlob(dir, base.sha, "logo.png", null, true), image(old));
+  assert.deepEqual(await previewBlob(dir, tree, "logo.png", null, true), image(next));
+  assert.deepEqual(await previewBlob(dir, tree, "huge.png", null, true), { status: "binary" });
+});
+
 test("parsing is lossless and reads file metadata", async () => {
   const { raw } = await readDiff(repo, DEFAULT_BRANCH_MODE);
   const diff = parseDiff(raw);

@@ -43,6 +43,15 @@ const EXTRA_CSS = `
 .review-comment-glyph { cursor: pointer; opacity: 0.8; }
 .review-comment-glyph:hover { opacity: 1; }
 [data-reviewresize] { cursor: col-resize; }
+.review-scope, .review-scope-margin {
+  box-sizing: border-box;
+  background-color: var(--vscode-editor-rangeHighlightBackground);
+  border: 0 solid var(--vscode-editor-rangeHighlightBorder);
+}
+.review-scope { border-right-width: 1px; }
+.review-scope-margin { border-left-width: 1px; }
+.review-scope-first { border-top-width: 1px; }
+.review-scope-last { border-bottom-width: 1px; }
 :root:has([data-reviewresizing]) * { user-select: none; cursor: col-resize; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
@@ -50,7 +59,11 @@ const EXTRA_CSS = `
 
 /** Monaco is mouse-and-keyboard software: phones and tablets get the built-in renderer. */
 export function isMonacoSupported(): boolean {
-  return Platform.OS === "web" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
+  return Platform.OS === "web" && hasMouse();
+}
+
+export function hasMouse(): boolean {
+  return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
 }
 
 export function asEditorContainer(node: object): EditorContainer {

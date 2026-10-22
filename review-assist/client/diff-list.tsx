@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type FlatList as NativeFlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, type FlatList as NativeFlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
 import { type SplitRow, splitRows } from "../shared/display";
@@ -24,16 +24,21 @@ import {
   UnplacedCards,
   cardKey,
   cardLine,
+  type ScopeEdge,
+  draftScope,
   fileCards,
+  inScope,
+  scopeEdges,
 } from "./comments";
-import { BinaryBody } from "./binary-view";
+import { BinaryBody, LfsBody } from "./binary-view";
 import { ChangeStats, FileLabel, ShowFullDiff, Tabs } from "./controls";
 import { DEFAULT_DIAGRAM_VIEW, type DiagramView, MermaidBody, isMermaid } from "./mermaid-view";
+import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard";
 import { ScrollLock } from "./zoomable-image";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { CODE_SURFACE, MONOSPACE, tint } from "./palette";
+import { CODE_SURFACE, IN_SCOPE_ALPHA, MONOSPACE, tint } from "./palette";
 import { type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
 import { isMonacoSupported } from "./web";
@@ -43,6 +48,7 @@ const MAX_SCROLL_ATTEMPTS = 60;
 const CODE_FONT_SIZE = 12;
 const CODE_LINE_HEIGHT = 18;
 const NO_COMMENTS: readonly DraftComment[] = [];
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const DIAGRAM_VIEWS = [
   { value: "visual", label: "Visual" },
   { value: "text", label: "Text" },
@@ -114,8 +120,39 @@ export function DiffList(props: DiffListProps) {
   const palette = usePalette(theme);
   const [overflowHost, setOverflowHost] = useState<object | null>(null);
   const [draft, setDraft] = useState<CommentDraft | null>(null);
-  const latest = useRef({ props, draft });
-  latest.current = { props, draft };
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const bottomInset = draft == null ? 0 : keyboardInset;
+  const latest = useRef({ props, draft, bottomInset });
+  latest.current = { props, draft, bottomInset };
+  const frame = useRef<View>(null);
+  const scrollY = useRef(0);
+  const pendingScroll = useRef<number | null>(null);
+  const scrollToPending = useCallback(() => {
+    if (pendingScroll.current == null) return;
+    list.current?.scrollToOffset({ offset: pendingScroll.current, animated: true });
+    pendingScroll.current = null;
+  }, []);
+  const centreAboveKeyboard = useCallback(
+    (node: View) => {
+      let live = true;
+      const stop = afterKeyboard(async (visible) => {
+        if (frame.current == null) return;
+        const [shown, target] = await Promise.all([spanOf(frame.current), spanOf(node)]);
+        if (!live) return;
+        const { scroll, bottomInset: inset } = centring(shown, target, visible);
+        pendingScroll.current = Math.max(0, scrollY.current + scroll);
+        // The effect on the inset scrolls once the space is laid out.
+        if (inset === latest.current.bottomInset) scrollToPending();
+        else setKeyboardInset(inset);
+      });
+      return () => {
+        live = false;
+        stop();
+      };
+    },
+    [scrollToPending],
+  );
+  useEffect(scrollToPending, [bottomInset, scrollToPending]);
 
   const setCollapsed = useCallback((key: string, collapsed: boolean) => {
     setFolding(({ base, overrides }) => ({ base, overrides: new Map(overrides).set(key, collapsed) }));
@@ -192,71 +229,78 @@ export function DiffList(props: DiffListProps) {
   }, [target, blocks.length]);
 
   return (
-    <View style={styles.list}>
+    <View ref={frame} style={styles.list}>
       <ScrollLock.Provider value={setScrollLocked}>
-        <FlatList
-          ref={list}
-          style={styles.list}
-          scrollEnabled={!scrollLocked}
-          data={blocks}
-          extraData={extraData}
-          keyExtractor={(block, index) => `${block.file.index}:${index}`}
-          initialNumToRender={4}
-          windowSize={7}
-          ListHeaderComponent={header}
-          ListFooterComponent={footer}
-          onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
-            // Rows vary in height, so the target has no offset until rendered: bring the end of the
-            // furthest measured row into view, which renders the rows after it, and aim again.
-            list.current?.scrollToIndex({ index: highestMeasuredFrameIndex, viewPosition: 1, animated: false });
-            clearTimeout(retry.current);
-            if (attempts.current++ < MAX_SCROLL_ATTEMPTS) {
-              retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
-            }
-          }}
-          renderItem={({ item, index }) => {
-            const isViewed = viewed?.isViewed(item) ?? null;
-            // By place as well as path: the same file can be a block in several sections.
-            const foldKey = `${index}:${item.file.path}`;
-            const collapsed =
-              folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
-            const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
-            const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
-            const block = (
-              <FileBlockView
-                block={item}
-                foldKey={foldKey}
-                source={source}
-                overflowHost={overflowHost}
-                collapsed={collapsed}
-                // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
-                capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
-                onShowFull={showFull}
-                diagram={isMermaid(item.file) ? (diagramViews.get(foldKey) ?? DEFAULT_DIAGRAM_VIEW) : null}
-                onDiagram={setDiagramView}
-                viewed={isViewed}
-                comments={fileComments}
-                draft={fileDraft}
-                actions={actions}
-                onCollapse={setCollapsed}
-                onViewed={markViewed}
-                view={view}
-                styles={styles}
-                theme={theme}
-                palette={palette}
-              />
-            );
-            const heading = props.heading?.(index);
-            return heading == null ? (
-              block
-            ) : (
-              <>
-                {heading}
-                {block}
-              </>
-            );
-          }}
-        />
+        <CentreAboveKeyboard.Provider value={centreAboveKeyboard}>
+          <FlatList
+            ref={list}
+            style={styles.list}
+            scrollEnabled={!scrollLocked}
+            onScroll={(event) => {
+              scrollY.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+            contentContainerStyle={{ paddingBottom: bottomInset }}
+            data={blocks}
+            extraData={extraData}
+            keyExtractor={(block, index) => `${block.file.index}:${index}`}
+            initialNumToRender={4}
+            windowSize={7}
+            ListHeaderComponent={header}
+            ListFooterComponent={footer}
+            onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
+              // Rows vary in height, so the target has no offset until rendered: bring the end of the
+              // furthest measured row into view, which renders the rows after it, and aim again.
+              list.current?.scrollToIndex({ index: highestMeasuredFrameIndex, viewPosition: 1, animated: false });
+              clearTimeout(retry.current);
+              if (attempts.current++ < MAX_SCROLL_ATTEMPTS) {
+                retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
+              }
+            }}
+            renderItem={({ item, index }) => {
+              const isViewed = viewed?.isViewed(item) ?? null;
+              // By place as well as path: the same file can be a block in several sections.
+              const foldKey = `${index}:${item.file.path}`;
+              const collapsed =
+                folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
+              const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
+              const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
+              const block = (
+                <FileBlockView
+                  block={item}
+                  foldKey={foldKey}
+                  source={source}
+                  overflowHost={overflowHost}
+                  collapsed={collapsed}
+                  // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
+                  capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
+                  onShowFull={showFull}
+                  diagram={isMermaid(item.file) ? (diagramViews.get(foldKey) ?? DEFAULT_DIAGRAM_VIEW) : null}
+                  onDiagram={setDiagramView}
+                  viewed={isViewed}
+                  comments={fileComments}
+                  draft={fileDraft}
+                  actions={actions}
+                  onCollapse={setCollapsed}
+                  onViewed={markViewed}
+                  view={view}
+                  styles={styles}
+                  theme={theme}
+                  palette={palette}
+                />
+              );
+              const heading = props.heading?.(index);
+              return heading == null ? (
+                block
+              ) : (
+                <>
+                  {heading}
+                  {block}
+                </>
+              );
+            }}
+          />
+        </CentreAboveKeyboard.Provider>
       </ScrollLock.Provider>
       {isMonacoSupported() ? (
         <View ref={(node) => setOverflowHost(node)} style={styles.overflowHost} dataSet={CODE_SURFACE} />
@@ -324,7 +368,7 @@ const FileBlockView = memo(function FileBlockView({
 }: FileBlockViewProps) {
   const { file } = block;
   const moved = file.oldPath != null && file.oldPath !== file.path;
-  const hasText = file.hunks.length > 0 && !file.binary;
+  const hasText = file.hunks.length > 0 && !file.binary && !file.lfs;
   const monaco = hasText && overflowHost != null && palette != null;
   const text = useFileText(source, file, (monaco || diagram?.visual === true) && !collapsed);
   // New hunks laid over the file's previous text misplace lines: keep the last pair that agrees.
@@ -439,6 +483,7 @@ const FileBlockView = memo(function FileBlockView({
   function textBody(): ReactNode {
     if (onlyWhitespace) return <Text style={styles.note}>Only whitespace changed.</Text>;
     if (file.binary) return <BinaryBody theme={theme} file={file} source={source} noteStyle={styles.note} />;
+    if (file.lfs) return <LfsBody theme={theme} file={file} source={source} noteStyle={styles.note} />;
     if (!monaco || text.status === "failed") return nativeBody;
     if (matched == null) return <View style={{ height: estimateHeight(block) }} />;
     return (
@@ -482,21 +527,42 @@ function NativeBody({
     () => (onShowFull == null ? { hunks, cut: false } : firstChanges(hunks, CAPPED_CHANGES)),
     [hunks, onShowFull],
   );
-  const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary);
+  const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary && !block.file.lfs);
   const cards = fileCards(comments);
   const unplaced = cards.filter((card) => hunks.every((hunk) => cardLine(card, hunk.lines) < 0));
-  const slot = (card: Card) => (
-    <CommentSlot key={cardKey(card)} theme={theme} file={block.file} card={card} comments={comments} />
+  const sideways = scrollsSideways(view);
+  const scrollX = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    // A remounted scroll view starts at 0 without a scroll event to say so.
+    if (sideways) scrollX.setValue(0);
+  }, [sideways, scrollX]);
+  const onScrollX = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: Platform.OS !== "web" }),
+    [scrollX],
   );
-  const rows = { gutter: gutterWidth(block.file), view, styles, syntax, palette, cards, comments, slot };
+  const [visibleWidth, setVisibleWidth] = useState<number | null>(null);
+  const pinned = sideways ? { width: visibleWidth ?? undefined, transform: [{ translateX: scrollX }] } : null;
+  const slot = (card: Card) => (
+    <Animated.View key={cardKey(card)} style={pinned}>
+      <CommentSlot theme={theme} file={block.file} card={card} comments={comments} />
+    </Animated.View>
+  );
+  const rows = { file: block.file, gutter: gutterWidth(block.file), view, styles, syntax, palette, cards, comments, slot };
   const body = shown.hunks.map((hunk, i) => <HunkView key={i} hunk={hunk} {...rows} />);
   return (
     <>
       <View>
-        {scrollsSideways(view) ? (
-          <ScrollView horizontal contentContainerStyle={styles.sideways}>
+        {sideways ? (
+          <AnimatedScrollView
+            horizontal
+            contentContainerStyle={styles.sideways}
+            onLayout={(event) => setVisibleWidth(event.nativeEvent.layout.width)}
+            onScroll={onScrollX}
+            scrollEventThrottle={16}
+          >
             <View style={styles.sidewaysColumn}>{body}</View>
-          </ScrollView>
+          </AnimatedScrollView>
         ) : (
           body
         )}
@@ -530,6 +596,7 @@ function scrollsSideways(view: ViewOptions): boolean {
 }
 
 interface RowProps {
+  readonly file: DiffFile;
   readonly gutter: number;
   readonly view: ViewOptions;
   readonly styles: DiffStyles;
@@ -540,8 +607,9 @@ interface RowProps {
   readonly slot: (card: Card) => ReactNode;
 }
 
-function HunkView({ hunk, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps & { hunk: ShownHunk }) {
+function HunkView({ hunk, file, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps & { hunk: ShownHunk }) {
   const { lines } = hunk;
+  const scope = draftScope(file, comments.draft, [lines]);
   const positions = new Map(lines.map((line, i) => [line, i]));
   const indexOf = (line: DiffLine) => positions.get(line) ?? -1;
   const cardsByLine = new Map<number, ReactNode[]>();
@@ -558,29 +626,39 @@ function HunkView({ hunk, gutter, view, styles, syntax, palette, cards, comments
     };
   };
   const cell = { styles, syntax, palette };
-  const body =
-    view.layout === "split"
-      ? splitRows(lines).map((row, i) => {
-          const indexes = new Set([row.left, row.right].flatMap((line) => (line == null ? [] : [indexOf(line)])));
-          return (
-            <View key={i}>
-              <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} {...cell} />
-              {[...indexes].flatMap(cardsAt)}
-            </View>
-          );
-        })
-      : lines.map((line, i) => (
-          <View key={i}>
-            <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} {...cell} />
-            {cardsAt(i)}
-          </View>
-        ));
+  const covers = (line: DiffLine | null, side: CommentTarget["side"]) =>
+    line != null && scope?.side === side && inScope(scope, line);
   return (
     <View>
       <MutedRow text={hunk.header} gutter={gutter} styles={styles} />
-      {body}
+      {view.layout === "split" ? splitBody() : unifiedBody()}
     </View>
   );
+
+  function splitBody(): ReactNode {
+    const rows = splitRows(lines);
+    const oldEdges = scopeEdges(rows, (row) => covers(row.left, "old"));
+    const newEdges = scopeEdges(rows, (row) => covers(row.right, "new"));
+    return rows.map((row, i) => {
+      const indexes = new Set([row.left, row.right].flatMap((line) => (line == null ? [] : [indexOf(line)])));
+      return (
+        <View key={i}>
+          <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
+          {[...indexes].flatMap(cardsAt)}
+        </View>
+      );
+    });
+  }
+
+  function unifiedBody(): ReactNode {
+    const edges = scopeEdges(lines, (line) => scope != null && inScope(scope, line));
+    return lines.map((line, i) => (
+      <View key={i}>
+        <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
+        {cardsAt(i)}
+      </View>
+    ));
+  }
 }
 
 interface GutterPress {
@@ -599,14 +677,16 @@ function LineRow({
   gutter,
   wrap,
   press,
+  edge,
   styles,
   syntax,
   palette,
-}: CellProps & { line: DiffLine; gutter: number; wrap: boolean; press: GutterPress }) {
+}: CellProps & { line: DiffLine; gutter: number; wrap: boolean; press: GutterPress; edge: ScopeEdge }) {
   const look = lineLook(line, styles);
   return (
     <>
       <View style={look.row} dataSet={CODE_SURFACE}>
+        <ScopeMark edge={edge} styles={styles} />
         <LineNumber
           number={line.kind === "del" ? line.oldNumber : line.newNumber}
           gutter={gutter}
@@ -628,13 +708,33 @@ function SplitLineRow({
   row,
   gutter,
   gutterFor,
+  edges: [oldEdge, newEdge],
   ...cell
-}: CellProps & { row: SplitRow; gutter: number; gutterFor(line: DiffLine): GutterPress }) {
+}: CellProps & {
+  row: SplitRow;
+  gutter: number;
+  gutterFor(line: DiffLine): GutterPress;
+  edges: readonly [ScopeEdge, ScopeEdge];
+}) {
   return (
     <View style={cell.styles.row} dataSet={CODE_SURFACE}>
-      <SplitCell line={row.left} number={row.left?.oldNumber ?? null} gutter={gutter} gutterFor={gutterFor} {...cell} />
+      <SplitCell
+        line={row.left}
+        number={row.left?.oldNumber ?? null}
+        gutter={gutter}
+        gutterFor={gutterFor}
+        edge={oldEdge}
+        {...cell}
+      />
       <View style={cell.styles.splitDivider} />
-      <SplitCell line={row.right} number={row.right?.newNumber ?? null} gutter={gutter} gutterFor={gutterFor} {...cell} />
+      <SplitCell
+        line={row.right}
+        number={row.right?.newNumber ?? null}
+        gutter={gutter}
+        gutterFor={gutterFor}
+        edge={newEdge}
+        {...cell}
+      />
     </View>
   );
 }
@@ -644,22 +744,39 @@ function SplitCell({
   number,
   gutter,
   gutterFor,
+  edge,
   styles,
   syntax,
   palette,
-}: CellProps & { line: DiffLine | null; number: number | null; gutter: number; gutterFor(line: DiffLine): GutterPress }) {
+}: CellProps & {
+  line: DiffLine | null;
+  number: number | null;
+  gutter: number;
+  gutterFor(line: DiffLine): GutterPress;
+  edge: ScopeEdge;
+}) {
   if (line == null) {
-    return <View style={styles.splitCell} />;
+    return (
+      <View style={styles.splitCell}>
+        <ScopeMark edge={edge} styles={styles} />
+      </View>
+    );
   }
   const look = lineLook(line, styles);
   return (
     <View style={[styles.splitCell, look.row]}>
+      <ScopeMark edge={edge} styles={styles} />
       <LineNumber number={number} gutter={gutter} style={look.number} press={gutterFor(line)} />
       <Text style={styles.code} selectable>
         {codeContent(line, syntax, palette)}
       </Text>
     </View>
   );
+}
+
+function ScopeMark({ edge, styles }: { edge: ScopeEdge; styles: DiffStyles }) {
+  if (edge == null) return null;
+  return <View pointerEvents="none" style={[styles.inScope, edge.first && styles.inScopeFirst, edge.last && styles.inScopeLast]} />;
 }
 
 /** Tap to comment on the line; long-press to stretch an open comment to it. */
@@ -786,6 +903,15 @@ function createStyles(theme: PluginTheme) {
     row,
     addRow: { ...row, backgroundColor: tint(colors.statusSuccess, 0.15) },
     delRow: { ...row, backgroundColor: tint(colors.statusDanger, 0.1) },
+    inScope: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: tint(colors.foreground, IN_SCOPE_ALPHA.fill),
+      borderColor: tint(colors.foreground, IN_SCOPE_ALPHA.edge),
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+    },
+    inScopeFirst: { borderTopWidth: 1 },
+    inScopeLast: { borderBottomWidth: 1 },
     splitCell: { ...row, flex: 1, flexBasis: 0 },
     splitDivider: { width: 1, backgroundColor: colors.border },
     number,

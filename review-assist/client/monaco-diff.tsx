@@ -5,7 +5,18 @@ import { detailsOf } from "../shared/errors";
 import { type FileBlock, blockChanges, blockLines } from "../shared/guide";
 import type { ViewOptions } from "../shared/settings";
 import { type BlockSides, CAPPED_CHANGES, CONTEXT_LINES, type Side, blockSides } from "../shared/sides";
-import { type Card, CommentSlot, type FileComments, UnplacedCards, cardKey, cardLine, fileCards } from "./comments";
+import {
+  type Card,
+  CommentSlot,
+  type FileComments,
+  UnplacedCards,
+  cardKey,
+  cardLine,
+  draftScope,
+  fileCards,
+  inScope,
+  scopeEdges,
+} from "./comments";
 import { ShowFullDiff } from "./controls";
 import type { CodeEditor, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
@@ -236,6 +247,27 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       for (const listener of listeners) listener.dispose();
     };
   }, [editors, sides]);
+
+  const scope = draftScope(file, comments.draft, [sides.original.lines, sides.modified.lines]);
+  const scopeKey = scope == null ? "" : `${scope.side}:${scope.startLine}:${scope.lineNumber}`;
+  useEffect(() => {
+    if (editors == null || disposed.current.has(editors) || scope == null) return;
+    const name = scope.side === "old" ? "original" : "modified";
+    const editor = editors[name];
+    if (editor == null) return;
+    const edges = scopeEdges(sides[name].lines, (line) => inScope(scope, line));
+    const highlighted = editor.createDecorationsCollection(
+      edges.flatMap((edge, i) => {
+        if (edge == null) return [];
+        const ends = `${edge.first ? " review-scope-first" : ""}${edge.last ? " review-scope-last" : ""}`;
+        const options = { isWholeLine: true, className: `review-scope${ends}`, marginClassName: `review-scope-margin${ends}` };
+        return [{ range: lineRange(i + 1, i + 1), options }];
+      }),
+    );
+    return () => {
+      if (!disposed.current.has(editors)) highlighted.clear();
+    };
+  }, [editors, sides, scopeKey]);
 
   const cards = fileCards(comments);
   const placements = cards.flatMap((card) => {
