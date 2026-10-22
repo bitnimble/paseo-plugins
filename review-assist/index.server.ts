@@ -11,6 +11,7 @@ import { cacheDirectory } from "./server/slots";
 import { GuideStore } from "./server/store";
 import { TreeFiles } from "./server/trees";
 import { WorkspaceTrust } from "./server/trust";
+import { PluginUpdates } from "./server/updates";
 import {
   agentsRpc,
   blobRpc,
@@ -30,6 +31,8 @@ import {
   stateRpc,
   submitRpc,
   trustRpc,
+  updateRpc,
+  updateStatusRpc,
   viewedRpc,
 } from "./shared/protocol";
 import { reviewSettings } from "./shared/settings";
@@ -45,6 +48,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const languageServers = new LanguageServers(trees);
   const trust = new WorkspaceTrust(cacheDirectory());
   const mermaid = new MermaidRenderer();
+  const updates = new PluginUpdates();
   // Roots arrive from clients; only real repository top levels are served.
   const roots = new Set<string>();
   const admit = async (root: string): Promise<boolean> => {
@@ -107,6 +111,11 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
   server.handle(monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
   server.handle(mermaidRpc, (input) => mermaid.draw(input));
+  server.handle(updateStatusRpc, () => updates.status());
+  server.handle(updateRpc, () => {
+    updates.install();
+    return {};
+  });
   server.handle(trustRpc, async ({ directory }) => ({ trust: await trust.read(directory) }));
   server.handle(setTrustRpc, async ({ directory, trusted }) => {
     const root = await repoRoot(directory);

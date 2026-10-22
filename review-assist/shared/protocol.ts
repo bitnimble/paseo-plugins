@@ -105,6 +105,35 @@ export const leaseRpc = defineRpc({
   output: z.object({}),
 });
 
+const updateStatusSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("available"),
+    current: z.string(),
+    target: z.string(),
+    /** Links to the changes between the two. */
+    review: z.string().nullable(),
+    /** Why the last attempt to install it failed. */
+    failure: z.string().nullable(),
+  }),
+  z.object({ status: z.literal("updating") }),
+  z.object({ status: z.literal("current"), revision: z.string() }),
+  z.object({ status: z.literal("unavailable"), reason: z.string() }),
+]);
+export type UpdateStatus = z.infer<typeof updateStatusSchema>;
+
+export const updateStatusRpc = defineRpc({
+  name: "review.update.status",
+  input: z.object({}),
+  output: updateStatusSchema,
+});
+
+/** Starts installing the update, which restarts the plugin once it's built. */
+export const updateRpc = defineRpc({
+  name: "review.update.apply",
+  input: z.object({}),
+  output: z.object({}),
+});
+
 const trustSchema = z.enum(["undecided", "trusted", "restricted"]);
 export type Trust = z.infer<typeof trustSchema>;
 

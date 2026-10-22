@@ -92,5 +92,9 @@ Paseo's Changes panel sends; a running agent takes them into its current turn.
 of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and GPT-6-Sol that a ready provider offers, and
 otherwise the first ready provider's default model.
 
+**Updates**, on the same page, checks the plugin's install source for a newer version and installs it
+through the daemon's `paseo` CLI, as `paseo plugin update review-assist` does. The build runs in the
+background, and the plugin restarts on the new version once it's ready.
+
 Guided reviews, viewed marks, draft comments and workspace trust are stored on the daemon host under
 `~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).
