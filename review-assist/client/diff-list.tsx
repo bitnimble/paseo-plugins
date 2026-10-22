@@ -27,7 +27,9 @@ import {
   fileCards,
 } from "./comments";
 import { BinaryBody } from "./binary-view";
-import { ChangeStats, FileLabel, ShowFullDiff } from "./controls";
+import { ChangeStats, FileLabel, ShowFullDiff, Tabs } from "./controls";
+import { DEFAULT_DIAGRAM_VIEW, type DiagramView, MermaidBody, isMermaid } from "./mermaid-view";
+import { ScrollLock } from "./zoomable-image";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
@@ -41,6 +43,10 @@ const MAX_SCROLL_ATTEMPTS = 60;
 const CODE_FONT_SIZE = 12;
 const CODE_LINE_HEIGHT = 18;
 const NO_COMMENTS: readonly DraftComment[] = [];
+const DIAGRAM_VIEWS = [
+  { value: "visual", label: "Visual" },
+  { value: "text", label: "Text" },
+] as const;
 
 export interface ScrollTarget {
   readonly blockIndex: number;
@@ -116,6 +122,12 @@ export function DiffList(props: DiffListProps) {
   }, []);
 
   const showFull = useCallback((key: string) => setShownInFull((keys) => new Set(keys).add(key)), []);
+  const [diagramViews, setDiagramViews] = useState<ReadonlyMap<string, DiagramView>>(new Map());
+  const [scrollLocked, setScrollLocked] = useState(false);
+  const setDiagramView = useCallback(
+    (key: string, diagramView: DiagramView) => setDiagramViews((views) => new Map(views).set(key, diagramView)),
+    [],
+  );
 
   const markViewed = useCallback(
     (block: FileBlock, key: string, isViewed: boolean) => {
@@ -162,8 +174,8 @@ export function DiffList(props: DiffListProps) {
     return byFile;
   }, [props.comments.comments]);
   const extraData = useMemo(
-    () => [folding, shownInFull, viewed, commentsByFile, draft, palette],
-    [folding, shownInFull, viewed, commentsByFile, draft, palette],
+    () => [folding, shownInFull, diagramViews, viewed, commentsByFile, draft, palette],
+    [folding, shownInFull, diagramViews, viewed, commentsByFile, draft, palette],
   );
 
   useEffect(() => {
@@ -181,66 +193,71 @@ export function DiffList(props: DiffListProps) {
 
   return (
     <View style={styles.list}>
-      <FlatList
-        ref={list}
-        style={styles.list}
-        data={blocks}
-        extraData={extraData}
-        keyExtractor={(block, index) => `${block.file.index}:${index}`}
-        initialNumToRender={4}
-        windowSize={7}
-        ListHeaderComponent={header}
-        ListFooterComponent={footer}
-        onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
-          // Rows vary in height, so the target has no offset until rendered: bring the end of the
-          // furthest measured row into view, which renders the rows after it, and aim again.
-          list.current?.scrollToIndex({ index: highestMeasuredFrameIndex, viewPosition: 1, animated: false });
-          clearTimeout(retry.current);
-          if (attempts.current++ < MAX_SCROLL_ATTEMPTS) {
-            retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
-          }
-        }}
-        renderItem={({ item, index }) => {
-          const isViewed = viewed?.isViewed(item) ?? null;
-          // By place as well as path: the same file can be a block in several sections.
-          const foldKey = `${index}:${item.file.path}`;
-          const collapsed =
-            folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
-          const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
-          const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
-          const block = (
-            <FileBlockView
-              block={item}
-              foldKey={foldKey}
-              source={source}
-              overflowHost={overflowHost}
-              collapsed={collapsed}
-              // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
-              capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
-              onShowFull={showFull}
-              viewed={isViewed}
-              comments={fileComments}
-              draft={fileDraft}
-              actions={actions}
-              onCollapse={setCollapsed}
-              onViewed={markViewed}
-              view={view}
-              styles={styles}
-              theme={theme}
-              palette={palette}
-            />
-          );
-          const heading = props.heading?.(index);
-          return heading == null ? (
-            block
-          ) : (
-            <>
-              {heading}
-              {block}
-            </>
-          );
-        }}
-      />
+      <ScrollLock.Provider value={setScrollLocked}>
+        <FlatList
+          ref={list}
+          style={styles.list}
+          scrollEnabled={!scrollLocked}
+          data={blocks}
+          extraData={extraData}
+          keyExtractor={(block, index) => `${block.file.index}:${index}`}
+          initialNumToRender={4}
+          windowSize={7}
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
+            // Rows vary in height, so the target has no offset until rendered: bring the end of the
+            // furthest measured row into view, which renders the rows after it, and aim again.
+            list.current?.scrollToIndex({ index: highestMeasuredFrameIndex, viewPosition: 1, animated: false });
+            clearTimeout(retry.current);
+            if (attempts.current++ < MAX_SCROLL_ATTEMPTS) {
+              retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
+            }
+          }}
+          renderItem={({ item, index }) => {
+            const isViewed = viewed?.isViewed(item) ?? null;
+            // By place as well as path: the same file can be a block in several sections.
+            const foldKey = `${index}:${item.file.path}`;
+            const collapsed =
+              folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
+            const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
+            const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
+            const block = (
+              <FileBlockView
+                block={item}
+                foldKey={foldKey}
+                source={source}
+                overflowHost={overflowHost}
+                collapsed={collapsed}
+                // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
+                capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
+                onShowFull={showFull}
+                diagram={isMermaid(item.file) ? (diagramViews.get(foldKey) ?? DEFAULT_DIAGRAM_VIEW) : null}
+                onDiagram={setDiagramView}
+                viewed={isViewed}
+                comments={fileComments}
+                draft={fileDraft}
+                actions={actions}
+                onCollapse={setCollapsed}
+                onViewed={markViewed}
+                view={view}
+                styles={styles}
+                theme={theme}
+                palette={palette}
+              />
+            );
+            const heading = props.heading?.(index);
+            return heading == null ? (
+              block
+            ) : (
+              <>
+                {heading}
+                {block}
+              </>
+            );
+          }}
+        />
+      </ScrollLock.Provider>
       {isMonacoSupported() ? (
         <View ref={(node) => setOverflowHost(node)} style={styles.overflowHost} dataSet={CODE_SURFACE} />
       ) : null}
@@ -268,6 +285,9 @@ interface FileBlockViewProps {
   readonly collapsed: boolean;
   readonly capped: boolean;
   readonly onShowFull: (foldKey: string) => void;
+  /** Null for files that aren't diagrams. */
+  readonly diagram: DiagramView | null;
+  readonly onDiagram: (foldKey: string, diagram: DiagramView) => void;
   /** Null hides the checkbox. */
   readonly viewed: boolean | null;
   readonly comments: readonly DraftComment[];
@@ -289,6 +309,8 @@ const FileBlockView = memo(function FileBlockView({
   collapsed,
   capped,
   onShowFull,
+  diagram,
+  onDiagram,
   viewed,
   comments,
   draft,
@@ -304,7 +326,7 @@ const FileBlockView = memo(function FileBlockView({
   const moved = file.oldPath != null && file.oldPath !== file.path;
   const hasText = file.hunks.length > 0 && !file.binary;
   const monaco = hasText && overflowHost != null && palette != null;
-  const text = useFileText(source, file, monaco && !collapsed);
+  const text = useFileText(source, file, (monaco || diagram?.visual === true) && !collapsed);
   // New hunks laid over the file's previous text misplace lines: keep the last pair that agrees.
   const lastMatched = useRef<{ block: FileBlock; text: string } | null>(null);
   if (text.status === "ready" && !text.previous) lastMatched.current = { block, text: text.text };
@@ -358,6 +380,15 @@ const FileBlockView = memo(function FileBlockView({
             <Text style={styles.viewedLabel}>{comments.length}</Text>
           </View>
         )}
+        {diagram == null ? null : (
+          <Tabs
+            theme={theme}
+            compact
+            value={diagram.visual ? "visual" : "text"}
+            options={DIAGRAM_VIEWS}
+            onChange={(value) => onDiagram(foldKey, { ...diagram, visual: value === "visual" })}
+          />
+        )}
         <ChangeStats theme={theme} file={file} {...blockCounts(block)} />
         {viewed == null ? null : (
           <Pressable
@@ -391,6 +422,21 @@ const FileBlockView = memo(function FileBlockView({
   );
 
   function body(): ReactNode {
+    if (diagram?.visual !== true) return textBody();
+    return (
+      <MermaidBody
+        block={block}
+        text={text}
+        theme={theme}
+        distance={diagram.distance}
+        onDistance={(distance) => onDiagram(foldKey, { ...diagram, distance })}
+        noteStyle={styles.note}
+        fallback={textBody()}
+      />
+    );
+  }
+
+  function textBody(): ReactNode {
     if (onlyWhitespace) return <Text style={styles.note}>Only whitespace changed.</Text>;
     if (file.binary) return <BinaryBody theme={theme} file={file} source={source} noteStyle={styles.note} />;
     if (!monaco || text.status === "failed") return nativeBody;

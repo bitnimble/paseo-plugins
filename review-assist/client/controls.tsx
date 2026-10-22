@@ -10,14 +10,16 @@ export function Tabs<Value extends string>({
   value,
   options,
   onChange,
+  compact = false,
 }: {
   theme: PluginTheme;
   value: Value;
   options: readonly { value: Value; label: string }[];
   onChange(value: Value): void;
+  compact?: boolean;
 }) {
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: "row", gap: 4 }}>
+    <View accessibilityRole="tablist" style={{ flexDirection: "row", gap: compact ? 2 : 4 }}>
       {options.map((option) => {
         const selected = option.value === value;
         return (
@@ -27,15 +29,18 @@ export function Tabs<Value extends string>({
             accessibilityState={{ selected }}
             onPress={() => onChange(option.value)}
             style={({ pressed }) => ({
-              height: 28,
+              height: compact ? 22 : 28,
               justifyContent: "center",
-              paddingHorizontal: 8,
+              paddingHorizontal: compact ? 6 : 8,
               borderRadius: 6,
               backgroundColor: selected ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
             })}
           >
             <Text
-              style={{ fontSize: 14, color: selected ? theme.colors.foreground : theme.colors.foregroundMuted }}
+              style={{
+                fontSize: compact ? 12 : 14,
+                color: selected ? theme.colors.foreground : theme.colors.foregroundMuted,
+              }}
             >
               {option.label}
             </Text>

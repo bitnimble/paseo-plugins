@@ -41,6 +41,11 @@ export function hexTint(color: string, alpha = 1): string {
   return `#${[...rgb, Math.round(alpha * 255)].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** `#rrggbb`, black for colors that are neither hex nor rgb. */
+export function hexColor(color: string): string {
+  return hexTint(color).slice(0, 7);
+}
+
 export function isDark(theme: PluginTheme): boolean {
   const rgb = parseColor(theme.colors.surface0);
   return rgb == null || 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 128;

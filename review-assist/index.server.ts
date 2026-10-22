@@ -3,6 +3,7 @@ import { sendReview, workspaceAgents } from "./server/agents";
 import { listBranches, previewBlob, readDiff, repoRoot } from "./server/git";
 import { highlightSides, syntaxPalette } from "./server/highlight";
 import { LanguageServers } from "./server/lsp/pool";
+import { MermaidRenderer } from "./server/mermaid/renderer";
 import { monacoChunk } from "./server/monaco-assets";
 import { ReviewStates } from "./server/review-state";
 import { messageOf } from "./shared/errors";
@@ -22,6 +23,7 @@ import {
   highlightRpc,
   leaseRpc,
   lspRpc,
+  mermaidRpc,
   monacoRpc,
   paletteRpc,
   setTrustRpc,
@@ -42,6 +44,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const trees = new TreeFiles();
   const languageServers = new LanguageServers(trees);
   const trust = new WorkspaceTrust(cacheDirectory());
+  const mermaid = new MermaidRenderer();
   // Roots arrive from clients; only real repository top levels are served.
   const roots = new Set<string>();
   const admit = async (root: string): Promise<boolean> => {
@@ -103,6 +106,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   });
   server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
   server.handle(monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
+  server.handle(mermaidRpc, (input) => mermaid.draw(input));
   server.handle(trustRpc, async ({ directory }) => ({ trust: await trust.read(directory) }));
   server.handle(setTrustRpc, async ({ directory, trusted }) => {
     const root = await repoRoot(directory);
@@ -119,5 +123,8 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     else if ((await admit(root)) && (await trust.allows(root))) languageServers.hold(root, leaseId);
     return {};
   });
-  return () => languageServers.dispose();
+  return async () => {
+    mermaid.dispose();
+    await languageServers.dispose();
+  };
 }

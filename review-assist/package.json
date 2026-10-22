@@ -15,12 +15,13 @@
     "package-lock.json"
   ],
   "scripts": {
-    "postinstall": "npm run bundle-monaco && npm run build-client",
+    "postinstall": "npm run bundle-monaco && npm run build-mermaid && npm run build-client",
     "bundle-monaco": "node scripts/bundle-monaco.mjs",
+    "build-mermaid": "node scripts/build-mermaid.mjs",
     "build-client": "node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-transform-types --no-warnings=ExperimentalWarning --import ./tests/resolve-ts.ts --test tests/*.test.ts",
-    "check": "npm run build-client && npm run typecheck && npm run test"
+    "check": "npm run build-mermaid && npm run build-client && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.11.4",
@@ -37,7 +38,10 @@
     "@babel/core": "^7.29.7",
     "@babel/plugin-transform-classes": "^7.29.7",
     "@getpaseo/highlight": "0.12.0",
+    "@resvg/resvg-wasm": "^2.6.2",
     "esbuild": "^0.25.12",
-    "monaco-editor": "0.57.0"
+    "mermaid": "^12.2.0",
+    "monaco-editor": "0.57.0",
+    "svgdom": "^0.1.29"
   }
 }

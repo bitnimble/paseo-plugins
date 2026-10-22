@@ -46,6 +46,19 @@ behind them. On phones and tablets, or when Monaco cannot load, the panel shows 
 Paseo's own syntax highlighting instead. Changed images show before and after, as GitHub does; a text
 file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for binary.
 
+Mermaid flowcharts and class diagrams (`.mmd`, `.mermaid`) open as a drawing of the change, with
+**Visual** and **Text** in the file's header to switch to the text diff. Removed nodes, links and
+class members are red, added ones green, and changed ones amber; removed text is crossed out, and a
+changed label, title, shape or link shows its old value crossed out above its new one. Only the
+nodes one link from a change are kept with it at first; the **Context** **−** and **+** buttons
+above each diagram keep fewer or more links out, fading the nodes two or more links away. The rest
+of the diagram is left out, a short stub drawn like the cut link and ending in a double slash, with
+room kept for it in the layout, marking each side of a node whose links were cut, so a large
+diagram shows only what changed and its surroundings. It starts fitted to the pane's width; the
+buttons above it zoom, as does pinching on a phone, and once zoomed in, a drag pans it. The daemon
+draws it in a worker thread, as an SVG for the web and a PNG for the phone apps; other diagram
+kinds and files that don't parse say so above the text diff.
+
 Files over 800 changed lines start collapsed. An expanded file without comments stops after 400
 changed lines, fading out under **Show full diff**.
 
