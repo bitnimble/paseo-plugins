@@ -112,6 +112,8 @@ function mermaidConfig(palette: MermaidPalette): Parameters<typeof mermaid.initi
       textColor: palette.foreground,
       titleColor: palette.foreground,
       edgeLabelBackground: palette.background,
+      // Mermaid's default light drop shadow reads as a thick border on dark palettes.
+      dropShadow: "none",
     },
   };
 }
