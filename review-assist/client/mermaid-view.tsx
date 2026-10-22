@@ -75,6 +75,7 @@ export function MermaidBody({
               theme={theme}
               icon="Minus"
               label="Show fewer neighbours"
+              tooltipSide="start"
               disabled={pending || distance <= 1}
               onPress={() => onDistance(distance - 1)}
             />
@@ -83,6 +84,7 @@ export function MermaidBody({
               theme={theme}
               icon="Plus"
               label="Show more neighbours"
+              tooltipSide="start"
               disabled={pending || !outcome.truncated || distance >= MERMAID_MAX_DISTANCE}
               onPress={() => onDistance(distance + 1)}
             />

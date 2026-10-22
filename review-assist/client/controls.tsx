@@ -94,6 +94,7 @@ export function IconButton({
   icon,
   label,
   disabled = false,
+  tooltipSide = "end",
   onPress,
 }: {
   theme: PluginTheme;
@@ -101,6 +102,8 @@ export function IconButton({
   /** Also shown as a tooltip on hover. */
   label: string;
   disabled?: boolean;
+  /** Which of the button's edges the tooltip lines up with; "start" for buttons at a pane's left edge. */
+  tooltipSide?: "start" | "end";
   onPress(): void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -128,7 +131,8 @@ export function IconButton({
           style={{
             position: "absolute",
             top: "100%",
-            right: 0,
+            ...(tooltipSide === "start" ? { left: 0 } : { right: 0 }),
+            zIndex: 1,
             marginTop: 6,
             paddingVertical: 4,
             paddingHorizontal: 8,

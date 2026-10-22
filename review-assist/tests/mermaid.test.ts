@@ -410,4 +410,65 @@ describe("MermaidRenderer", () => {
     const broken = await draw("flowchart LR\n  A -->", "flowchart LR\n  A --> B");
     assert.equal(broken.status === "unavailable" && broken.reason.split(":")[0], "The diagram before this change doesn't parse");
   });
+
+  test("lays cylinders out at their drawn height", async () => {
+    const outcome = await draw("flowchart LR\n  A[(Store)]", "flowchart LR\n  A[(Shop)]");
+    assert.equal(outcome.status, "ready");
+    if (outcome.status !== "ready") return;
+    assert.ok(outcome.height < 160, `drawn ${outcome.height} tall`);
+  });
+});
+
+describe("MermaidRenderer's worker", () => {
+  const ready = { status: "ready", uri: "data:,", width: 1, height: 1, truncated: false };
+  const fakeWorker = `
+    const { parentPort } = require("node:worker_threads");
+    let hung = false;
+    parentPort.on("message", (request) => {
+      if (request.before === "crash") throw new Error("boom");
+      hung ||= request.before === "hang";
+      if (hung) return;
+      parentPort.postMessage({ id: request.id, outcome: ${JSON.stringify(ready)} });
+    });
+  `;
+  const palette: MermaidPalette = {
+    dark: true,
+    background: "#000000",
+    surface: "#000000",
+    foreground: "#ffffff",
+    muted: "#ffffff",
+    border: "#ffffff",
+    added: "#00ff00",
+    removed: "#ff0000",
+    changed: "#ffaa00",
+  };
+  const request = (before: string) => ({ before, after: "", format: "svg" as const, palette, distance: 1 });
+
+  test("reports a crash, then starts a new worker for the next diagram", async () => {
+    const renderer = new MermaidRenderer(fakeWorker);
+    try {
+      assert.deepEqual(await renderer.draw(request("crash")), {
+        status: "unavailable",
+        reason: "The diagram renderer crashed: boom",
+      });
+      assert.deepEqual(await renderer.draw(request("fine")), ready);
+    } finally {
+      renderer.dispose();
+    }
+  });
+
+  test("gives up on a worker that stops answering, failing every diagram waiting on it", async () => {
+    const renderer = new MermaidRenderer(fakeWorker, 100);
+    try {
+      const stuck = "The diagram took too long to draw.";
+      const outcomes = await Promise.all([renderer.draw(request("hang")), renderer.draw(request("fine"))]);
+      assert.deepEqual(outcomes, [
+        { status: "unavailable", reason: stuck },
+        { status: "unavailable", reason: stuck },
+      ]);
+      assert.deepEqual(await renderer.draw(request("fine")), ready);
+    } finally {
+      renderer.dispose();
+    }
+  });
 });

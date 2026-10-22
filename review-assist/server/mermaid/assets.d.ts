@@ -9,6 +9,27 @@ declare module "*.wasm" {
   export default bytes;
 }
 
+declare module "*/svgdom/src/utils/pathUtils.js" {
+  interface PathPoint {
+    x: number;
+    y: number;
+    clone(): PathPoint;
+  }
+
+  export class Arc {
+    readonly p1: PathPoint;
+    readonly p2: PathPoint;
+    readonly c: PathPoint;
+    readonly rx: number;
+    readonly ry: number;
+    readonly theta: number;
+    readonly delta: number;
+    readonly cosφ: number;
+    readonly sinφ: number;
+    pointAt(t: number): PathPoint;
+  }
+}
+
 declare module "svgdom" {
   interface FontConfig {
     setFontDir(directory: string): FontConfig;

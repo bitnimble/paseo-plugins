@@ -14,6 +14,11 @@ export class MermaidRenderer {
   private idle: ReturnType<typeof setTimeout> | undefined;
   private watchdog: ReturnType<typeof setTimeout> | undefined;
 
+  constructor(
+    private readonly workerScript = script,
+    private readonly timeoutMs = TIMEOUT_MS,
+  ) {}
+
   draw(input: Omit<MermaidRequest, "id">): Promise<MermaidOutcome> {
     const worker = this.start();
     const id = this.nextId++;
@@ -31,7 +36,7 @@ export class MermaidRenderer {
 
   private start(): Worker {
     if (this.worker != null) return this.worker;
-    const worker = new Worker(script, { eval: true });
+    const worker = new Worker(this.workerScript, { eval: true });
     worker.on("message", ({ id, outcome }: MermaidResponse) => this.settle(id, outcome));
     worker.on("error", (error) => {
       if (this.worker === worker) this.stop(`The diagram renderer crashed: ${error.message}`);
@@ -57,7 +62,7 @@ export class MermaidRenderer {
 
   /** The worker draws one at a time, so only a wait with no drawing finished counts as stuck. */
   private watch(): void {
-    this.watchdog = setTimeout(() => this.stop("The diagram took too long to draw."), TIMEOUT_MS);
+    this.watchdog = setTimeout(() => this.stop("The diagram took too long to draw."), this.timeoutMs);
   }
 
   private stop(reason: string): void {

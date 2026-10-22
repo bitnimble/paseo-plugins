@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type SvgElement, config, createHTMLWindow } from "svgdom";
 import font from "../../node_modules/svgdom/fonts/OpenSans-Regular.ttf";
+import { Arc } from "../../node_modules/svgdom/src/utils/pathUtils.js";
 
 export const FONT_FAMILY = "Open Sans";
 export const FONT_SIZE = 16;
@@ -17,6 +18,17 @@ const fontDir = join(tmpdir(), "review-assist-fonts");
 mkdirSync(fontDir, { recursive: true });
 writeFileSync(join(fontDir, FONT_FILE), font);
 config.setFontDir(fontDir).setFontFamilyMappings({ "sans-serif": FONT_FILE, [FONT_FAMILY]: FONT_FILE }).preloadFonts();
+
+// svgdom swaps the radii in an arc point's y, so an elliptical arc (a cylinder's ends) measures as tall
+// as it is wide and its node takes room several times its height.
+Arc.prototype.pointAt = function (t: number) {
+  if (this.p1.x === this.p2.x && this.p1.y === this.p2.y) return this.p1.clone();
+  const angle = ((this.theta + t * this.delta) / 180) * Math.PI;
+  const point = this.c.clone();
+  point.x += this.cosφ * this.rx * Math.cos(angle) - this.sinφ * this.ry * Math.sin(angle);
+  point.y += this.sinφ * this.rx * Math.cos(angle) + this.cosφ * this.ry * Math.sin(angle);
+  return point;
+};
 
 const window = createHTMLWindow();
 for (const key of WINDOW_GLOBALS) window[key] ??= Reflect.get(globalThis, key);
