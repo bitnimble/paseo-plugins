@@ -99,11 +99,14 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
     baseRef: "abc123",
     agentId: "recent",
     message: "  ",
-    comments: [draft(added, "1", "Name these."), draft(removed, "2", "Keep b.")],
+    comments: [draft(added, "1", "Name these."), draft(removed, "2", "Keep b.\nIt's used.")],
   });
   const [{ id, text, options }] = sent;
   assert.equal(id, "recent");
-  assert.equal(text, "Please address these review comments.");
+  assert.equal(
+    text,
+    "Please address these review comments.\n\n- f.ts lines 2–4: Name these.\n- f.ts line 2 of the old file: Keep b.\n  It's used.",
+  );
   assert.equal(options.activeTurnBehavior, "steer");
   const attachment = ReviewAttachmentSchema.parse(options.attachments?.[0]);
   assert.equal(attachment.mode, "base");
@@ -112,7 +115,7 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
     attachment.comments.map(({ filePath, side, lineNumber, body }) => [filePath, side, lineNumber, body]),
     [
       ["f.ts", "new", 4, "Lines 2–4: Name these."],
-      ["f.ts", "old", 2, "Keep b."],
+      ["f.ts", "old", 2, "Keep b.\nIt's used."],
     ],
   );
 });

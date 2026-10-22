@@ -24,7 +24,13 @@ export async function sendReview(
   paseo: Paseo,
   input: Target & { agentId: string; baseRef: string; message: string; comments: readonly DraftComment[] },
 ): Promise<void> {
-  await paseo.agents.ref(input.agentId).send(input.message.trim() || DEFAULT_MESSAGE, {
+  // Chat history keeps only the text, not attachments, so the comments go in both.
+  const listed = input.comments.map((comment) => {
+    const where = `${comment.filePath} ${rangeLabel(comment).toLowerCase()}${comment.side === "old" ? " of the old file" : ""}`;
+    return `- ${where}: ${comment.body.replaceAll("\n", "\n  ")}`;
+  });
+  const text = [input.message.trim() || DEFAULT_MESSAGE, "", ...listed].join("\n");
+  await paseo.agents.ref(input.agentId).send(text, {
     activeTurnBehavior: "steer",
     attachments: [
       {
