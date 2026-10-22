@@ -204,10 +204,14 @@ test("LFS files diff as pointers and preview the content they name", async (t) =
   gitIn(dir, "commit", "-q", "-m", "before lfs");
   write(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n*.txt filter=lfs diff=lfs merge=lfs -text\n", dir);
   write("logo.png", old, dir);
+  write("gone.png", old, dir);
+  write("moved.png", next, dir);
   // Not -A: within the same second git re-reads notes.txt and would store it as a pointer already.
-  gitIn(dir, "add", ".gitattributes", "logo.png");
+  gitIn(dir, "add", ".gitattributes", "logo.png", "gone.png", "moved.png");
   gitIn(dir, "commit", "-q", "-m", "base");
   write("logo.png", next, dir);
+  unlinkSync(join(dir, "gone.png"));
+  gitIn(dir, "mv", "moved.png", "renamed.png");
   write("notes.txt", "plain\nmore\n", dir);
   const oid = "a".repeat(64);
   write("huge.png", `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize 99999999\n`, dir);
@@ -215,16 +219,19 @@ test("LFS files diff as pointers and preview the content they name", async (t) =
   const { raw, tree, base, facts } = await readDiff(dir, UNCOMMITTED_MODE);
   const files = new Map(parseDiff(raw, facts).files.map((file) => [file.path, file]));
   assert.deepEqual(
-    ["logo.png", "huge.png", "notes.txt"].map((path) => {
+    ["logo.png", "huge.png", "gone.png", "renamed.png", "notes.txt"].map((path) => {
       const file = files.get(path);
-      return [file?.binary, file?.lfs, file?.sizeChange];
+      return [file?.status, file?.binary, file?.lfs, file?.sizeChange];
     }),
     [
-      [false, true, 2],
-      [false, true, 99999999],
-      [false, false, null],
+      ["modified", false, true, 2],
+      ["added", false, true, 99999999],
+      ["deleted", false, true, -old.length],
+      ["renamed", false, false, null],
+      ["modified", false, false, null],
     ],
   );
+  assert.deepEqual(await previewBlob(dir, base.sha, "notes.txt", null, true), { status: "text" });
   const image = (bytes: Buffer) => ({ status: "image", uri: `data:image/png;base64,${bytes.toString("base64")}`, bytes: bytes.length });
   assert.deepEqual(await previewBlob(dir, base.sha, "logo.png", null, true), image(old));
   assert.deepEqual(await previewBlob(dir, tree, "logo.png", null, true), image(next));
