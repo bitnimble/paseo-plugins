@@ -8,6 +8,8 @@ import { monacoChunk } from "./server/monaco-assets";
 import { ReviewStates } from "./server/review-state";
 import { messageOf } from "./shared/errors";
 import { cacheDirectory } from "./server/slots";
+import { applySuggestions } from "./server/suggestions";
+import { isEdit } from "./shared/comments";
 import { GuideStore } from "./server/store";
 import { TreeFiles } from "./server/trees";
 import { WorkspaceTrust } from "./server/trust";
@@ -83,13 +85,25 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     change.action === "save" ? states.saveComment(target, change.comment) : states.deleteComments(target, [change.id]),
   );
   server.handle(agentsRpc, async ({ workspaceId }, { paseo }) => ({ agents: await workspaceAgents(paseo, workspaceId) }));
-  server.handle(submitRpc, async ({ commentIds, ...input }, { paseo }) => {
+  server.handle(submitRpc, async ({ commentIds, agentId, ...input }, { paseo }) => {
     const comments = (await states.read(input)).comments.filter(({ id }) => commentIds.includes(id));
     if (comments.length === 0) return { status: "failed" as const, error: "These comments were already sent or deleted." };
+    if (agentId == null && !comments.every(isEdit)) return { status: "failed" as const, error: "Pick an agent for the comments." };
+    let edited: Awaited<ReturnType<typeof applySuggestions>>;
     try {
-      await sendReview(paseo, { ...input, comments });
+      edited = await applySuggestions(await repoRoot(input.directory), comments);
     } catch (error) {
       return failed(error);
+    }
+    const { applied, rest } = edited;
+    // The edits are on disk now: a failed send below must leave only the rest, renumbered, to retry.
+    await states.deleteComments(input, applied.map(({ id }) => id));
+    for (const comment of rest) await states.saveComment(input, comment);
+    try {
+      if (agentId != null && rest.length > 0) await sendReview(paseo, { ...input, agentId, comments: rest, applied });
+    } catch (error) {
+      const made = applied.length === 0 ? "" : `Made the suggested ${applied.length === 1 ? "edit" : "edits"}, but `;
+      return { status: "failed" as const, error: `${made}${made === "" ? "" : "sending failed: "}${messageOf(error)}` };
     }
     return { status: "sent" as const, state: await states.deleteComments(input, commentIds) };
   });

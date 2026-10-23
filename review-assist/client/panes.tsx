@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
+import { type ReactNode, createContext, useContext, useMemo, useRef, useState } from "react";
 import { PanResponder, Pressable, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import type { ViewOptions } from "../shared/settings";
@@ -20,6 +20,21 @@ export function fitsPane(width: number): boolean {
   return width >= MIN_PANE_WIDTH + MIN_DIFF_WIDTH;
 }
 
+const FileFilter = createContext("");
+
+/** Whether `path` contains every space-separated word of the side pane's filter, ignoring case; null without one. */
+function useFileFilter(): ((path: string) => boolean) | null {
+  const words = useContext(FileFilter).toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  return (path) => words.every((word) => path.toLowerCase().includes(word));
+}
+
+/** Hides `children` while the side pane's filter matches none of `paths`. */
+export function Filtered({ paths, children }: { paths: readonly string[]; children: ReactNode }) {
+  const matches = useFileFilter();
+  return matches == null || paths.some(matches) ? children : null;
+}
+
 /** A null `pane` leaves the diff alone, without remounting it. */
 export function Split({
   theme,
@@ -36,6 +51,7 @@ export function Split({
 }) {
   const [dragged, setDragged] = useState<number | null>(null);
   const [room, setRoom] = useState(Infinity);
+  const [filter, setFilter] = useState("");
   const clamp = (width: number) => clampPane(width, room);
   const width = dragged ?? clamp(paneWidth);
   return (
@@ -45,7 +61,31 @@ export function Split({
     >
       {pane == null ? null : (
         <View style={{ width, borderRightWidth: 1, borderRightColor: theme.colors.border }}>
-          <ScrollView contentContainerStyle={{ paddingBottom: 8 }}>{pane}</ScrollView>
+          <TextInput
+            accessibilityLabel="Filter files"
+            value={filter}
+            onChangeText={setFilter}
+            placeholder="Filter files"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={{
+              marginHorizontal: 8,
+              marginTop: 8,
+              paddingHorizontal: 8,
+              paddingVertical: 6,
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              color: theme.colors.foreground,
+              fontSize: 14,
+            }}
+          />
+          <FileFilter.Provider value={filter}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }}>
+              {pane}
+            </ScrollView>
+          </FileFilter.Provider>
           <ResizeHandle
             theme={theme}
             width={width}
@@ -151,8 +191,10 @@ export function FileList({
   indent?: number;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const matches = useFileFilter();
+  const shown = matches == null ? entries : entries.filter((entry) => matches(entry.file.path));
   if (layout === "flat") {
-    return entries.map((entry) => (
+    return shown.map((entry) => (
       <FileRow key={entry.file.index} theme={theme} {...entry} indent={indent} />
     ));
   }
@@ -162,7 +204,7 @@ export function FileList({
       if (!next.delete(path)) next.add(path);
       return next;
     });
-  return treeRows(entries, (entry) => entry.file.path, collapsed).map((row) =>
+  return treeRows(shown, (entry) => entry.file.path, collapsed).map((row) =>
     row.kind === "directory" ? (
       <DirectoryRow
         key={`directory:${row.path}`}

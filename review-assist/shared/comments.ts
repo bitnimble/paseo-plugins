@@ -2,7 +2,7 @@ import type { DiffFile } from "./diff";
 import type { ContextLine, DraftComment } from "./protocol";
 import { type SideLine, rangeHeader } from "./sides";
 
-export type CommentTarget = Omit<DraftComment, "id" | "body" | "createdAt">;
+export type CommentTarget = Omit<DraftComment, "id" | "body" | "createdAt" | "suggestion">;
 
 const CONTEXT_LINES = 3;
 
@@ -33,6 +33,21 @@ export function commentTarget(
       lines: around.map(contextLine),
     },
   };
+}
+
+/** A comment made by writing its suggestion into the working tree, without the agent. */
+export function isEdit(comment: DraftComment): boolean {
+  return comment.suggestion != null && comment.side === "new";
+}
+
+/** The new-side text a suggestion on `target` would replace; null when it can't carry one. */
+export function suggestible(target: CommentTarget): string | null {
+  if (target.side !== "new") return null;
+  const lines = target.context.lines.filter(
+    ({ newLineNumber }) => newLineNumber != null && newLineNumber >= target.startLine && newLineNumber <= target.lineNumber,
+  );
+  if (lines.length !== target.lineNumber - target.startLine + 1) return null;
+  return lines.map(({ content }) => (content.endsWith("\r") ? content.slice(0, -1) : content)).join("\n");
 }
 
 /** Where `comment` sits among `lines`, or -1 when they do not include its line. */

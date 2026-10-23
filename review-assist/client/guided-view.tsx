@@ -10,7 +10,7 @@ import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
 import { Button, Notice } from "./controls";
 import { DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
-import { FileList, PaneHeading, Split } from "./panes";
+import { FileList, Filtered, PaneHeading, Split } from "./panes";
 import { type Review, commentStore } from "./use-review";
 
 interface GuidedViewProps {
@@ -248,48 +248,50 @@ function Sections({
             {sectionViewed.filter(Boolean).length} of {count} sections viewed
           </PaneHeading>
           {record.sections.map((item, sectionIndex) => (
-            <View key={item.id} style={{ paddingBottom: 6 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: sectionIndex === index }}
-                onPress={() => go(sectionIndex)}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "flex-start",
-                  gap: 8,
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  backgroundColor:
-                    sectionIndex === index ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
-                })}
-              >
-                <View style={{ paddingTop: 3 }}>
-                  <Icon
-                    name={sectionViewed[sectionIndex] ? "CircleCheck" : "Circle"}
-                    size={14}
-                    color={sectionViewed[sectionIndex] ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
-                  />
-                </View>
-                <Text
-                  style={{ flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.foreground, fontWeight: "600" }}
-                  numberOfLines={2}
+            <Filtered key={item.id} paths={blocksBySection[sectionIndex].map((block) => block.file.path)}>
+              <View style={{ paddingBottom: 6 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: sectionIndex === index }}
+                  onPress={() => go(sectionIndex)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    backgroundColor:
+                      sectionIndex === index ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
+                  })}
                 >
-                  {sectionIndex + 1}. {item.title}
-                </Text>
-              </Pressable>
-              <FileList
-                theme={theme}
-                layout={view.fileList}
-                indent={22}
-                entries={blocksBySection[sectionIndex].map((block, blockIndex) => ({
-                  file: block.file,
-                  ...blockCounts(block),
-                  viewed: isViewed(block),
-                  comments: commentCounts.get(block.file.path),
-                  onPress: () => go(sectionIndex, blockIndex),
-                }))}
-              />
-            </View>
+                  <View style={{ paddingTop: 3 }}>
+                    <Icon
+                      name={sectionViewed[sectionIndex] ? "CircleCheck" : "Circle"}
+                      size={14}
+                      color={sectionViewed[sectionIndex] ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
+                    />
+                  </View>
+                  <Text
+                    style={{ flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.foreground, fontWeight: "600" }}
+                    numberOfLines={2}
+                  >
+                    {sectionIndex + 1}. {item.title}
+                  </Text>
+                </Pressable>
+                <FileList
+                  theme={theme}
+                  layout={view.fileList}
+                  indent={22}
+                  entries={blocksBySection[sectionIndex].map((block, blockIndex) => ({
+                    file: block.file,
+                    ...blockCounts(block),
+                    viewed: isViewed(block),
+                    comments: commentCounts.get(block.file.path),
+                    onPress: () => go(sectionIndex, blockIndex),
+                  }))}
+                />
+              </View>
+            </Filtered>
           ))}
         </>
       }

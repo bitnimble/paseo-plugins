@@ -70,8 +70,11 @@ export interface Review {
   saveComment(comment: DraftComment): void;
   deleteComment(id: string): void;
   setTrust(trusted: boolean): void;
-  /** Resolves to an error message, or null once the agent has the comments. */
-  submit(input: { agentId: string; message: string }): Promise<string | null>;
+  /**
+   * Resolves to an error message, or null once the agent has the comments. `agentId` may be null
+   * when every comment is a suggested edit.
+   */
+  submit(input: { agentId: string | null; message: string }): Promise<string | null>;
 }
 
 export function commentStore(review: Review): CommentStore {
@@ -217,6 +220,10 @@ export function useReview(input: {
         return null;
       } catch (error) {
         return messageOf(error);
+      } finally {
+        // Suggested edits may have changed the working tree and comments, even when the send failed.
+        void queryClient.invalidateQueries({ queryKey: ["review-diff", directory] });
+        void queryClient.invalidateQueries({ queryKey: stateKey });
       }
     },
   };

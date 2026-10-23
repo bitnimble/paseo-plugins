@@ -7,7 +7,7 @@ import { UNCOMMITTED_MODE } from "../shared/protocol";
 import { TreeFiles } from "../server/trees";
 import { type DiffFile, parseDiff } from "../shared/diff";
 import { type FileBlock, fullBlocks } from "../shared/guide";
-import { applyHunks, blockHunks, blockSides, takeChanges } from "../shared/sides";
+import { applyHunks, blockHunks, blockSides, hunksOf, takeChanges, wholeFileLines } from "../shared/sides";
 import { freshRepo, gitIn, removeScratch, writeIn } from "./repo";
 
 let repo = "";
@@ -77,6 +77,19 @@ test("a whole file's block is the old file against the new one, and the hunks re
     "moved.txt",
     "top.txt",
   ]);
+});
+
+test("the whole file's lines cut into hunks around changes, growing with revealed ranges", async () => {
+  const snapshot = await readDiff(repo, UNCOMMITTED_MODE);
+  const block = fullBlocks(parseDiff(snapshot.raw)).find(({ file }) => file.path === "edits.txt");
+  assert.ok(block != null);
+  const { modified } = await texts(block.file, snapshot.root, snapshot.tree, snapshot.base.sha);
+  const { lines } = wholeFileLines(block, modified, false);
+  assert.equal(lines.filter((line) => line.kind !== "del").length, 40);
+  const headers = (revealed: [number, number][] = []) => hunksOf(lines, 3, revealed).map(({ header }) => header);
+  assert.deepEqual(headers(), ["@@ -1,6 +1,6 @@", "@@ -27,7 +27,6 @@", "@@ -38,3 +37,4 @@"]);
+  assert.deepEqual(headers([[6, 12]]), ["@@ -1,11 +1,11 @@", "@@ -27,7 +27,6 @@", "@@ -38,3 +37,4 @@"]);
+  assert.deepEqual(headers([[0, lines.length]]), ["@@ -1,40 +1,40 @@"]);
 });
 
 const SPLIT = parseDiff(

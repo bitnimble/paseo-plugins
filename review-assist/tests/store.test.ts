@@ -114,6 +114,7 @@ test("viewed marks and comments persist through concurrent writes and a new guid
       targetLine: { oldLineNumber: null, newLineNumber: 2, type: "add", content: "TWO" },
       lines: [],
     },
+    suggestion: null,
     createdAt: "2026-10-21T00:00:00.000Z",
   };
   await Promise.all([states.saveComment(slot, comment), states.saveComment(slot, { ...comment, id: "c2" })]);

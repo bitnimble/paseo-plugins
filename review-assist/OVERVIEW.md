@@ -33,6 +33,9 @@ changed in whitespace, as `git diff -w` would, and lists the side pane's files f
 These change how lines are shown, never which section they belong to. Drag the side pane's edge to
 resize it; these choices are saved on the daemon.
 
+**Filter files** at the top of the side pane keeps the files whose path holds every word typed, and
+the guided review's sections holding any of them.
+
 When the panel is too narrow to hold the side pane beside a readable diff, as in Paseo's sidebar, the
 pane goes away and the layout is always unified: the guided review shows every section in one
 scroll, each under its title and description, and the full diff shows just the files.
@@ -43,7 +46,8 @@ and hover for its type, through a language server the daemon runs for the reposi
 `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer` or `clangd`, from the
 repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
 behind them. On phones and tablets, or when Monaco cannot load, the panel shows the diff with
-Paseo's own syntax highlighting instead. Changed images show before and after, as GitHub does; a text
+Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
+row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap. Changed images show before and after, as GitHub does; a text
 file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for binary. Git LFS
 files show only their pointer's size change until **Fetch and compare** downloads both sides.
 
@@ -86,6 +90,12 @@ all of them. In the built-in view, tap a line number, and long-press another to 
 Comments are drafts kept on the daemon until you send them. **N comments** in the toolbar sends
 them all to an agent in the workspace, with an optional message, as the same review attachment
 Paseo's Changes panel sends; a running agent takes them into its current turn.
+
+**Edit selected lines**, on a comment on the new side, fills in the lines' current text for you to edit;
+left empty, it deletes them. Sending writes the suggestions into the working tree itself, before
+and without the agent, which only hears which lines were edited. A suggestion whose lines have
+changed since stops the send until you edit or delete it. With only suggestions, the toolbar's
+**Make N suggested edits** applies them without an agent.
 
 ## Settings
 

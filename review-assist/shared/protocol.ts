@@ -326,6 +326,8 @@ export const draftCommentSchema = z.object({
   lineNumber: z.number().int().positive(),
   body: z.string(),
   context: z.object({ hunkHeader: z.string(), targetLine: contextLineSchema, lines: z.array(contextLineSchema) }),
+  /** New-side lines `startLine` to `lineNumber` as they were, and what to replace them with, joined by "\n". */
+  suggestion: z.object({ original: z.string(), replacement: z.string() }).nullable().default(null),
   createdAt: z.string(),
 });
 export type DraftComment = z.infer<typeof draftCommentSchema>;
@@ -381,7 +383,8 @@ export const submitRpc = defineRpc({
   input: z.object({
     ...target,
     baseRef: z.string(),
-    agentId: z.string(),
+    /** Null when every comment is a suggested edit, which needs no agent. */
+    agentId: z.string().nullable(),
     message: z.string(),
     commentIds: z.array(z.string()).min(1),
   }),

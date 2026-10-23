@@ -4,17 +4,20 @@ import { type ReactElement, type ReactNode, memo, useCallback, useEffect, useMem
 import { Animated, type FlatList as NativeFlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
-import { type SplitRow, splitRows } from "../shared/display";
+import { type Span, type SplitRow, splitRows, wordChanges } from "../shared/display";
 import { type FileBlock, blockChanges, blockCounts } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
 import type { ViewOptions } from "../shared/settings";
 import {
   CAPPED_CHANGES,
+  CONTEXT_LINES,
   type ShownHunk,
   type SideLine,
   blockHunks,
+  hunksOf,
   rangeHeader,
   takeChanges,
+  wholeFileLines,
 } from "../shared/sides";
 import {
   type Card,
@@ -25,6 +28,7 @@ import {
   cardKey,
   cardLine,
   type ScopeEdge,
+  type Suggestion,
   draftScope,
   fileCards,
   inScope,
@@ -39,7 +43,7 @@ import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE, IN_SCOPE_ALPHA, MONOSPACE, tint } from "./palette";
-import { type FileSyntax, lineTokens } from "./syntax";
+import { type ColoredText, type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
 import { isMonacoSupported } from "./web";
 
@@ -49,6 +53,9 @@ const CODE_FONT_SIZE = 12;
 const CODE_LINE_HEIGHT = 18;
 const NO_COMMENTS: readonly DraftComment[] = [];
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+const EXPAND_STEP = 20;
+const MAX_REVEAL_ALL = 400;
+const NO_RANGES: readonly Range[] = [];
 const DIAGRAM_VIEWS = [
   { value: "visual", label: "Visual" },
   { value: "text", label: "Text" },
@@ -77,10 +84,10 @@ export interface CommentStore {
 }
 
 interface CommentActions {
-  compose(filePath: string, lines: readonly SideLine[], start: number, end: number, extend: boolean): void;
+  compose(filePath: string, blockKey: string, lines: readonly SideLine[], start: number, end: number, extend: boolean): void;
   edit(comment: DraftComment): void;
   cancel(): void;
-  submit(target: CommentTarget, body: string): void;
+  submit(target: CommentTarget, body: string, suggestion: Suggestion | null): void;
   remove(id: string): void;
 }
 
@@ -176,20 +183,22 @@ export function DiffList(props: DiffListProps) {
 
   const actions = useMemo(
     (): CommentActions => ({
-      compose: (filePath, lines, start, end, extend) =>
-        setDraft((current) =>
-          extend && current?.kind === "new" && current.lines === lines
-            ? { ...current, start: Math.min(current.start, start), end: Math.max(current.end, end) }
-            : { kind: "new", filePath, lines, start, end },
-        ),
+      compose: (filePath, blockKey, lines, start, end, extend) =>
+        setDraft((current): CommentDraft => {
+          const same = current?.kind === "new" && current.blockKey === blockKey ? current : null;
+          const from = same == null ? -1 : lines.indexOf(same.lines[same.start]);
+          const to = same == null ? -1 : lines.indexOf(same.lines[same.end]);
+          if (!extend || from < 0 || to < 0) return { kind: "new", filePath, blockKey, lines, start, end };
+          return { kind: "new", filePath, blockKey, lines, start: Math.min(from, start), end: Math.max(to, end) };
+        }),
       edit: (comment) => setDraft({ kind: "edit", comment }),
       cancel: () => setDraft(null),
-      submit: (target, body) => {
+      submit: (target, body, suggestion) => {
         const { draft: current, props: currentProps } = latest.current;
         currentProps.comments.save(
           current?.kind === "edit"
-            ? { ...current.comment, body }
-            : { ...target, id: newCommentId(), body, createdAt: new Date().toISOString() },
+            ? { ...current.comment, body, suggestion }
+            : { ...target, id: newCommentId(), body, suggestion, createdAt: new Date().toISOString() },
         );
         setDraft(null);
       },
@@ -236,6 +245,8 @@ export function DiffList(props: DiffListProps) {
             ref={list}
             style={styles.list}
             scrollEnabled={!scrollLocked}
+            // Else the first tap with the keyboard up only dismisses it, eating a long-press to extend a comment.
+            keyboardShouldPersistTaps="handled"
             onScroll={(event) => {
               scrollY.current = event.nativeEvent.contentOffset.y;
             }}
@@ -264,7 +275,10 @@ export function DiffList(props: DiffListProps) {
               const collapsed =
                 folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
               const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
-              const fileDraft = draft != null && draftPath(draft) === item.file.path ? draft : null;
+              const fileDraft =
+                draft != null && draftPath(draft) === item.file.path && (draft.kind === "edit" || draft.blockKey === foldKey)
+                  ? draft
+                  : null;
               const block = (
                 <FileBlockView
                   block={item}
@@ -370,7 +384,7 @@ const FileBlockView = memo(function FileBlockView({
   const moved = file.oldPath != null && file.oldPath !== file.path;
   const hasText = file.hunks.length > 0 && !file.binary && !file.lfs;
   const monaco = hasText && overflowHost != null && palette != null;
-  const text = useFileText(source, file, (monaco || diagram?.visual === true) && !collapsed);
+  const text = useFileText(source, file, (hasText || diagram?.visual === true) && !collapsed);
   // New hunks laid over the file's previous text misplace lines: keep the last pair that agrees.
   const lastMatched = useRef<{ block: FileBlock; text: string } | null>(null);
   if (text.status === "ready" && !text.previous) lastMatched.current = { block, text: text.text };
@@ -379,13 +393,13 @@ const FileBlockView = memo(function FileBlockView({
     (): FileComments => ({
       comments,
       draft,
-      compose: (lines, start, end, extend = false) => actions.compose(file.path, lines, start, end, extend),
+      compose: (lines, start, end, extend = false) => actions.compose(file.path, foldKey, lines, start, end, extend),
       edit: actions.edit,
       cancel: actions.cancel,
       submit: actions.submit,
       remove: actions.remove,
     }),
-    [comments, draft, actions, file.path],
+    [comments, draft, actions, file.path, foldKey],
   );
   const onlyWhitespace = useMemo(
     () =>
@@ -405,6 +419,7 @@ const FileBlockView = memo(function FileBlockView({
       palette={palette}
       comments={fileComments}
       onShowFull={showFull}
+      text={matched?.block === block ? matched.text : null}
     />
   );
 
@@ -512,6 +527,7 @@ function NativeBody({
   palette,
   comments,
   onShowFull,
+  text,
 }: {
   block: FileBlock;
   source: CodeSource;
@@ -521,12 +537,25 @@ function NativeBody({
   palette: SyntaxPalette | null;
   comments: FileComments;
   onShowFull: (() => void) | null;
+  /** The file as the diff leaves it, once known, to show the lines around the changes. */
+  text: string | null;
 }) {
-  const hunks = useMemo(() => blockHunks(block, view.hideWhitespace), [block, view.hideWhitespace]);
+  const whole = useMemo(
+    () => (text == null ? null : wholeFileLines(block, text, view.hideWhitespace).lines),
+    [block, text, view.hideWhitespace],
+  );
+  const [revealed, setRevealed] = useState<Revealed>({ of: null, ranges: [] });
+  const ranges = revealed.of === whole ? revealed.ranges : NO_RANGES;
+  const hunks = useMemo(
+    () => (whole == null ? blockHunks(block, view.hideWhitespace) : hunksOf(whole, CONTEXT_LINES, ranges)),
+    [block, view.hideWhitespace, whole, ranges],
+  );
+  const reveal = (range: Range) => setRevealed({ of: whole, ranges: [...ranges, range] });
   const shown = useMemo(
     () => (onShowFull == null ? { hunks, cut: false } : firstChanges(hunks, CAPPED_CHANGES)),
     [hunks, onShowFull],
   );
+  const marks = useMemo(() => shown.hunks.map((hunk) => wordChanges(hunk.lines)), [shown]);
   const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary && !block.file.lfs);
   const cards = fileCards(comments);
   const unplaced = cards.filter((card) => hunks.every((hunk) => cardLine(card, hunk.lines) < 0));
@@ -548,14 +577,39 @@ function NativeBody({
       <CommentSlot theme={theme} file={block.file} card={card} comments={comments} />
     </Animated.View>
   );
-  const rows = { file: block.file, gutter: gutterWidth(block.file), view, styles, syntax, palette, cards, comments, slot };
-  const body = shown.hunks.map((hunk, i) => <HunkView key={i} hunk={hunk} {...rows} />);
+  const gutter = gutterWidth(block.file);
+  const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot };
+  const gap = (from: number, to: number) => (
+    <GapRow
+      key={`gap:${from}`}
+      from={from}
+      to={to}
+      total={whole?.length ?? 0}
+      gutter={gutter}
+      theme={theme}
+      styles={styles}
+      onReveal={reveal}
+    />
+  );
+  const last = shown.hunks[shown.hunks.length - 1];
+  const body = [
+    ...shown.hunks.flatMap((hunk, i) => [
+      whole == null || hunk.start == null ? (
+        <MutedRow key={`header:${i}`} text={hunk.header} gutter={gutter} styles={styles} />
+      ) : (
+        gap(shown.hunks[i - 1]?.end ?? 0, hunk.start)
+      ),
+      ...hunkRows(hunk, marks[i], rows),
+    ]),
+    whole == null || shown.cut || last?.end == null ? null : gap(last.end, whole.length),
+  ];
   return (
     <>
       <View>
         {sideways ? (
           <AnimatedScrollView
             horizontal
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.sideways}
             onLayout={(event) => setVisibleWidth(event.nativeEvent.layout.width)}
             onScroll={onScrollX}
@@ -572,6 +626,61 @@ function NativeBody({
       </View>
       <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />
     </>
+  );
+}
+
+type Range = readonly [number, number];
+
+/** Line ranges shown on request, valid only for the `of` lines they index. */
+interface Revealed {
+  readonly of: readonly DiffLine[] | null;
+  readonly ranges: readonly Range[];
+}
+
+function GapRow({
+  from,
+  to,
+  total,
+  gutter,
+  theme,
+  styles,
+  onReveal,
+}: {
+  from: number;
+  to: number;
+  total: number;
+  gutter: number;
+  theme: PluginTheme;
+  styles: DiffStyles;
+  onReveal(range: Range): void;
+}) {
+  const hidden = to - from;
+  if (hidden <= 0) return null;
+  const color = theme.colors.foregroundMuted;
+  const step = hidden > EXPAND_STEP;
+  const button = (label: string, icon: string, range: Range) => (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={6} onPress={() => onReveal(range)}>
+      <Icon name={icon} size={14} color={color} />
+    </Pressable>
+  );
+  return (
+    <View style={[styles.row, styles.gap]} dataSet={CODE_SURFACE}>
+      <View style={[styles.gapButtons, { width: gutter }]}>
+        {step && to < total ? button(`Show ${EXPAND_STEP} lines above`, "ChevronUp", [to - EXPAND_STEP, to]) : null}
+        {step && from > 0 ? button(`Show ${EXPAND_STEP} lines below`, "ChevronDown", [from, from + EXPAND_STEP]) : null}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        disabled={hidden > MAX_REVEAL_ALL}
+        style={styles.gapLabel}
+        onPress={() => onReveal([from, to])}
+      >
+        <Icon name="ChevronsUpDown" size={12} color={color} />
+        <Text style={styles.mutedCode}>
+          {hidden === 1 ? "1 hidden line" : `${hidden} hidden lines`}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -607,7 +716,11 @@ interface RowProps {
   readonly slot: (card: Card) => ReactNode;
 }
 
-function HunkView({ hunk, file, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps & { hunk: ShownHunk }) {
+function hunkRows(
+  hunk: ShownHunk,
+  marks: ReadonlyMap<DiffLine, readonly Span[]>,
+  { file, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps,
+): ReactNode[] {
   const { lines } = hunk;
   const scope = draftScope(file, comments.draft, [lines]);
   const positions = new Map(lines.map((line, i) => [line, i]));
@@ -625,24 +738,19 @@ function HunkView({ hunk, file, gutter, view, styles, syntax, palette, cards, co
       onLongPress: () => comments.compose(lines, index, index, true),
     };
   };
-  const cell = { styles, syntax, palette };
+  const cell = { styles, syntax, palette, marks };
   const covers = (line: DiffLine | null, side: CommentTarget["side"]) =>
     line != null && scope?.side === side && inScope(scope, line);
-  return (
-    <View>
-      <MutedRow text={hunk.header} gutter={gutter} styles={styles} />
-      {view.layout === "split" ? splitBody() : unifiedBody()}
-    </View>
-  );
+  return view.layout === "split" ? splitBody() : unifiedBody();
 
-  function splitBody(): ReactNode {
+  function splitBody(): ReactNode[] {
     const rows = splitRows(lines);
     const oldEdges = scopeEdges(rows, (row) => covers(row.left, "old"));
     const newEdges = scopeEdges(rows, (row) => covers(row.right, "new"));
     return rows.map((row, i) => {
       const indexes = new Set([row.left, row.right].flatMap((line) => (line == null ? [] : [indexOf(line)])));
       return (
-        <View key={i}>
+        <View key={`${lineKey(row.left)}|${lineKey(row.right)}`}>
           <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
           {[...indexes].flatMap(cardsAt)}
         </View>
@@ -650,15 +758,20 @@ function HunkView({ hunk, file, gutter, view, styles, syntax, palette, cards, co
     });
   }
 
-  function unifiedBody(): ReactNode {
+  function unifiedBody(): ReactNode[] {
     const edges = scopeEdges(lines, (line) => scope != null && inScope(scope, line));
     return lines.map((line, i) => (
-      <View key={i}>
+      <View key={lineKey(line)}>
         <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
         {cardsAt(i)}
       </View>
     ));
   }
+}
+
+// By line, not index: an open comment box keeps its text as revealed context shifts and merges hunks.
+function lineKey(line: DiffLine | null): string {
+  return line == null ? "" : `${line.oldNumber ?? ""}:${line.newNumber ?? ""}`;
 }
 
 interface GutterPress {
@@ -670,6 +783,8 @@ interface CellProps {
   readonly styles: DiffStyles;
   readonly syntax: FileSyntax | null;
   readonly palette: SyntaxPalette | null;
+  /** The changed words of the lines that have them. */
+  readonly marks: ReadonlyMap<DiffLine, readonly Span[]>;
 }
 
 function LineRow({
@@ -678,10 +793,9 @@ function LineRow({
   wrap,
   press,
   edge,
-  styles,
-  syntax,
-  palette,
+  ...cell
 }: CellProps & { line: DiffLine; gutter: number; wrap: boolean; press: GutterPress; edge: ScopeEdge }) {
+  const { styles } = cell;
   const look = lineLook(line, styles);
   return (
     <>
@@ -694,7 +808,7 @@ function LineRow({
           press={press}
         />
         <Text style={wrap ? styles.code : styles.codeSideways} selectable>
-          {codeContent(line, syntax, palette)}
+          {codeContent(line, cell)}
         </Text>
       </View>
       {line.noNewlineMarker == null ? null : (
@@ -745,9 +859,7 @@ function SplitCell({
   gutter,
   gutterFor,
   edge,
-  styles,
-  syntax,
-  palette,
+  ...cell
 }: CellProps & {
   line: DiffLine | null;
   number: number | null;
@@ -755,6 +867,7 @@ function SplitCell({
   gutterFor(line: DiffLine): GutterPress;
   edge: ScopeEdge;
 }) {
+  const { styles } = cell;
   if (line == null) {
     return (
       <View style={styles.splitCell}>
@@ -768,7 +881,7 @@ function SplitCell({
       <ScopeMark edge={edge} styles={styles} />
       <LineNumber number={number} gutter={gutter} style={look.number} press={gutterFor(line)} />
       <Text style={styles.code} selectable>
-        {codeContent(line, syntax, palette)}
+        {codeContent(line, cell)}
       </Text>
     </View>
   );
@@ -803,14 +916,32 @@ function LineNumber({
   );
 }
 
-function codeContent(line: DiffLine, syntax: FileSyntax | null, palette: SyntaxPalette | null): ReactNode {
+function codeContent(line: DiffLine, { syntax, palette, marks, styles }: CellProps): ReactNode {
   const tokens = lineTokens(syntax, palette, line);
-  if (tokens == null) return expandTabs(line.text);
-  return tokens.map((token, i) => (
-    <Text key={i} style={token.color == null ? undefined : { color: token.color }}>
-      {expandTabs(token.text)}
+  const spans = marks.get(line);
+  if (tokens == null && spans == null) return expandTabs(line.text);
+  const mark = line.kind === "add" ? styles.addMark : styles.delMark;
+  return markedPieces(tokens ?? [{ text: line.text, color: null }], spans ?? []).map((piece, i) => (
+    <Text key={i} style={[piece.color == null ? undefined : { color: piece.color }, piece.marked && mark]}>
+      {expandTabs(piece.text)}
     </Text>
   ));
+}
+
+function markedPieces(tokens: readonly ColoredText[], spans: readonly Span[]): (ColoredText & { marked: boolean })[] {
+  const pieces: (ColoredText & { marked: boolean })[] = [];
+  let offset = 0;
+  for (const token of tokens) {
+    const end = offset + token.text.length;
+    const cuts = [offset, ...spans.flatMap(({ start, end: stop }) => [start, stop]).filter((at) => at > offset && at < end), end];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const text = token.text.slice(cuts[i] - offset, cuts[i + 1] - offset);
+      const marked = spans.some(({ start, end: stop }) => cuts[i] >= start && cuts[i] < stop);
+      if (text !== "") pieces.push({ text, color: token.color, marked });
+    }
+    offset = end;
+  }
+  return pieces;
 }
 
 function MutedRow({ text, gutter, styles }: { text: string; gutter: number; styles: DiffStyles }) {
@@ -910,11 +1041,16 @@ function createStyles(theme: PluginTheme) {
       borderLeftWidth: 1,
       borderRightWidth: 1,
     },
+    gap: { alignItems: "center", backgroundColor: colors.surface1 },
+    gapButtons: { flexDirection: "row", justifyContent: "center", gap: 4, borderRightWidth: 1, borderRightColor: colors.border },
+    gapLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 8 },
     inScopeFirst: { borderTopWidth: 1 },
     inScopeLast: { borderBottomWidth: 1 },
     splitCell: { ...row, flex: 1, flexBasis: 0 },
     splitDivider: { width: 1, backgroundColor: colors.border },
     number,
+    addMark: { backgroundColor: tint(colors.statusSuccess, 0.3) },
+    delMark: { backgroundColor: tint(colors.statusDanger, 0.25) },
     addNumber: { ...number, color: colors.statusSuccess },
     delNumber: { ...number, color: colors.statusDanger },
     code: { ...code, flex: 1, flexShrink: 1, paddingHorizontal: 8, color: colors.foreground },

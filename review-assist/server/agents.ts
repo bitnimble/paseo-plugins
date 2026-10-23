@@ -22,14 +22,20 @@ export async function workspaceAgents(paseo: Paseo, workspaceId: string): Promis
 /** As Paseo's own Changes panel sends them, so the agent reads them the same way. */
 export async function sendReview(
   paseo: Paseo,
-  input: Target & { agentId: string; baseRef: string; message: string; comments: readonly DraftComment[] },
+  input: Target & {
+    agentId: string;
+    baseRef: string;
+    message: string;
+    comments: readonly DraftComment[];
+    /** Suggestions already written to the working tree, named so the agent keeps them. */
+    applied?: readonly DraftComment[];
+  },
 ): Promise<void> {
   // Chat history keeps only the text, not attachments, so the comments go in both.
-  const listed = input.comments.map((comment) => {
-    const where = `${comment.filePath} ${rangeLabel(comment).toLowerCase()}${comment.side === "old" ? " of the old file" : ""}`;
-    return `- ${where}: ${comment.body.replaceAll("\n", "\n  ")}`;
-  });
-  const text = [input.message.trim() || DEFAULT_MESSAGE, "", ...listed].join("\n");
+  const listed = input.comments.map((comment) => `- ${where(comment)}: ${comment.body.replaceAll("\n", "\n  ")}`);
+  const applied = input.applied ?? [];
+  const edits = applied.length === 0 ? [] : ["", "I've already made these edits myself:", ...applied.map((comment) => `- ${where(comment)}`)];
+  const text = [input.message.trim() || DEFAULT_MESSAGE, "", ...listed, ...edits].join("\n");
   await paseo.agents.ref(input.agentId).send(text, {
     activeTurnBehavior: "steer",
     attachments: [
@@ -50,4 +56,8 @@ export async function sendReview(
       },
     ],
   });
+}
+
+function where(comment: DraftComment): string {
+  return `${comment.filePath} ${rangeLabel(comment).toLowerCase()}${comment.side === "old" ? " of the old file" : ""}`;
 }

@@ -2,18 +2,22 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { type CommentTarget, commentLine, commentTarget, rangeLabel } from "../shared/comments";
+import { type CommentTarget, commentLine, commentTarget, rangeLabel, suggestible } from "../shared/comments";
 import type { DiffFile } from "../shared/diff";
 import { type FileBlock, isWholeFile } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
 import type { SideLine } from "../shared/sides";
 import { Button } from "./controls";
 import { CentreAboveKeyboard } from "./keyboard";
+import { MONOSPACE, tint } from "./palette";
+import { hasMouse } from "./web";
 
 export type CommentDraft =
   | {
       readonly kind: "new";
       readonly filePath: string;
+      /** The block it was opened in: sections showing the same file share its lines. */
+      readonly blockKey: string;
       readonly lines: readonly SideLine[];
       readonly start: number;
       readonly end: number;
@@ -27,9 +31,11 @@ export interface FileComments {
   compose(lines: readonly SideLine[], start: number, end: number, extend?: boolean): void;
   edit(comment: DraftComment): void;
   cancel(): void;
-  submit(target: CommentTarget, body: string): void;
+  submit(target: CommentTarget, body: string, suggestion: Suggestion | null): void;
   remove(id: string): void;
 }
+
+export type Suggestion = NonNullable<DraftComment["suggestion"]>;
 
 export function countByPath(comments: readonly DraftComment[]): Map<string, number> {
   const counts = new Map<string, number>();
@@ -48,7 +54,8 @@ export function cardKey(card: Card): string {
 export function cardLine(card: Card, lines: readonly SideLine[]): number {
   if ("kind" in card) {
     if (card.kind === "edit") return commentLine(card.comment, lines);
-    return card.lines === lines ? card.end : -1;
+    // By line, not list: revealing context cuts a new list from the same lines.
+    return lines.indexOf(card.lines[card.end]);
   }
   return commentLine(card, lines);
 }
@@ -63,7 +70,9 @@ export function draftScope(
   draft: CommentDraft | null,
   views: readonly (readonly SideLine[])[],
 ): CommentTarget | null {
-  if (draft == null || (draft.kind === "new" && !views.includes(draft.lines))) return null;
+  if (draft == null || (draft.kind === "new" && !views.some((lines) => lines.includes(draft.lines[draft.end])))) {
+    return null;
+  }
   return draftTarget(file, draft);
 }
 
@@ -152,8 +161,10 @@ export function CommentSlot({
       theme={theme}
       target={target}
       initialBody={card.kind === "edit" ? card.comment.body : ""}
+      initialSuggestion={card.kind === "edit" ? card.comment.suggestion : null}
+      extendable={card.kind === "new"}
       onCancel={comments.cancel}
-      onSubmit={(body) => comments.submit(target, body)}
+      onSubmit={(body, suggestion) => comments.submit(target, body, suggestion)}
     />
   );
 }
@@ -180,9 +191,31 @@ function CommentCard({
         <Button theme={theme} size="xs" variant="ghost" label="Edit" onPress={onEdit} />
         <Button theme={theme} size="xs" variant="ghost" label="Delete" onPress={onDelete} />
       </View>
-      <Text style={{ fontSize: 14, lineHeight: 20, color: theme.colors.foreground }} selectable>
-        {comment.body}
+      {comment.body === "" ? null : (
+        <Text style={{ fontSize: 14, lineHeight: 20, color: theme.colors.foreground }} selectable>
+          {comment.body}
+        </Text>
+      )}
+      {comment.suggestion == null ? null : <SuggestionPreview theme={theme} suggestion={comment.suggestion} />}
+    </View>
+  );
+}
+
+function SuggestionPreview({ theme, suggestion }: { theme: PluginTheme; suggestion: Suggestion }) {
+  const { colors } = theme;
+  const rows = (text: string, sign: string, color: string) =>
+    (text === "" ? [] : text.split("\n")).map((line, i) => (
+      <Text key={`${sign}${i}`} style={{ ...suggestionCode, color: colors.foreground, backgroundColor: tint(color, 0.15) }}>
+        {sign} {line}
       </Text>
+    ));
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>Suggested change, made when sent</Text>
+      <View style={{ borderRadius: 6, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+        {rows(suggestion.original, "-", colors.statusDanger)}
+        {rows(suggestion.replacement, "+", colors.statusSuccess)}
+      </View>
     </View>
   );
 }
@@ -191,16 +224,30 @@ function CommentComposer({
   theme,
   target,
   initialBody,
+  initialSuggestion,
+  extendable,
   onCancel,
   onSubmit,
 }: {
   theme: PluginTheme;
   target: CommentTarget;
   initialBody: string;
+  initialSuggestion: Suggestion | null;
+  extendable: boolean;
   onCancel(): void;
-  onSubmit(body: string): void;
+  onSubmit(body: string, suggestion: Suggestion | null): void;
 }) {
   const [body, setBody] = useState(initialBody);
+  const original = suggestible(target);
+  const [edit, setEdit] = useState(
+    initialSuggestion == null ? null : { of: initialSuggestion.original, replacement: initialSuggestion.replacement },
+  );
+  // Widening the lines starts the replacement over from them, rather than replacing more with less.
+  const suggestion =
+    original == null || edit == null ? null : { original, replacement: edit.of === original ? edit.replacement : original };
+  const setReplacement = (replacement: string | null) =>
+    setEdit(replacement == null || original == null ? null : { of: original, replacement });
+  const changed = body.trim() !== "" || suggestion != null;
   const card = useRef<View>(null);
   const centre = useContext(CentreAboveKeyboard);
   useEffect(
@@ -212,41 +259,72 @@ function CommentComposer({
       <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>
         {rangeLabel(target)}
         {target.side === "old" ? " of the old file" : ""}
+        {extendable && !hasMouse() ? " · Long-press another line number to extend" : ""}
       </Text>
       <TextInput
         accessibilityLabel={`Comment on ${rangeLabel(target).toLowerCase()}`}
-        autoFocus
+        autoFocus={initialSuggestion == null}
         multiline
         value={body}
         onChangeText={setBody}
-        placeholder="Leave a comment for the agent"
+        placeholder={suggestion == null ? "Leave a comment for the agent" : "Note for yourself (optional)"}
         placeholderTextColor={theme.colors.foregroundMuted}
-        style={{
-          minHeight: 64,
-          padding: 8,
-          borderRadius: 6,
-          borderWidth: 1,
-          borderColor: theme.colors.border,
-          backgroundColor: theme.colors.surface0,
-          color: theme.colors.foreground,
-          fontSize: 14,
-          lineHeight: 20,
-          textAlignVertical: "top",
-        }}
+        style={inputStyle(theme, 64)}
       />
-      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+      {suggestion == null ? null : (
+        <View style={{ gap: 4 }}>
+          <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>
+            Replacement, made on send without the agent; empty deletes the lines
+          </Text>
+          <TextInput
+            accessibilityLabel="Suggested replacement"
+            autoFocus
+            multiline
+            value={suggestion.replacement}
+            onChangeText={setReplacement}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            style={{ ...inputStyle(theme, 0), ...suggestionCode }}
+          />
+        </View>
+      )}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {original == null ? null : suggestion == null ? (
+          <Button theme={theme} size="xs" variant="ghost" icon="FilePen" label="Edit selected lines" onPress={() => setReplacement(original)} />
+        ) : (
+          <Button theme={theme} size="xs" variant="ghost" label="Remove suggestion" onPress={() => setReplacement(null)} />
+        )}
+        <View style={{ flex: 1 }} />
         <Button theme={theme} size="xs" variant="ghost" label="Cancel" onPress={onCancel} />
         <Button
           theme={theme}
           size="xs"
           variant="default"
-          label={initialBody === "" ? "Add comment" : "Save"}
-          disabled={body.trim() === ""}
-          onPress={() => onSubmit(body.trim())}
+          label={initialBody === "" && initialSuggestion == null ? "Add comment" : "Save"}
+          disabled={!changed}
+          onPress={() => onSubmit(body.trim(), suggestion)}
         />
       </View>
     </View>
   );
+}
+
+const suggestionCode = { fontFamily: MONOSPACE, fontSize: 12, lineHeight: 18 } as const;
+
+function inputStyle(theme: PluginTheme, minHeight: number) {
+  return {
+    minHeight,
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface0,
+    color: theme.colors.foreground,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlignVertical: "top",
+  } as const;
 }
 
 function cardStyle(theme: PluginTheme) {

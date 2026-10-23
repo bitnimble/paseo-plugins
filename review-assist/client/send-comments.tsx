@@ -4,6 +4,7 @@ import { Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
+import { isEdit } from "../shared/comments";
 import { agentsRpc } from "../shared/protocol";
 import { Button, ToolbarTrigger } from "./controls";
 import { MenuItem } from "./menu";
@@ -23,11 +24,13 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
   const [sending, setSending] = useState(false);
   const count = review.state.comments.length;
   const comments = `${count} ${count === 1 ? "comment" : "comments"}`;
+  const edits = review.state.comments.filter(isEdit).length;
+  const onlyEdits = edits === count;
   const choices = agents.data?.agents ?? [];
   const chosen = choices.find(({ id }) => id === picked) ?? choices[0] ?? null;
   const muted = { fontSize: 14, lineHeight: 20, color: theme.colors.foregroundMuted };
 
-  const send = async (agentId: string, title: string) => {
+  const send = async (agentId: string | null, done: string) => {
     setSending(true);
     const failure = await review.submit({ agentId, message });
     setSending(false);
@@ -35,10 +38,24 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
       toast.error(failure);
       return;
     }
-    toast.show(`Sent ${comments} to ${title}`, { variant: "success" });
+    toast.show(done, { variant: "success" });
     setMessage("");
     setOpen(false);
   };
+
+  if (onlyEdits) {
+    const label = `Make ${count} suggested ${count === 1 ? "edit" : "edits"}`;
+    return (
+      <ToolbarTrigger
+        theme={theme}
+        label={label}
+        icon="FilePen"
+        onPress={() => {
+          if (!sending) void send(null, `Made ${count === 1 ? "the suggested edit" : `${count} suggested edits`}`);
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -47,6 +64,7 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
         <Modal.Content>
           <Text style={muted}>
             The agent gets them as a review, the way the Changes panel sends comments, and they are cleared here.
+            {edits === 0 ? "" : ` ${edits === 1 ? "The suggested edit is" : `The ${edits} suggested edits are`} made first, without the agent.`}
           </Text>
           <View style={{ gap: 2 }}>
             {agents.isPending ? (
@@ -94,7 +112,7 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
               label={sending ? "Sending…" : "Send to agent"}
               disabled={chosen == null || sending}
               onPress={() => {
-                if (chosen != null) void send(chosen.id, chosen.title ?? "the agent");
+                if (chosen != null) void send(chosen.id, `Sent ${comments} to ${chosen.title ?? "the agent"}`);
               }}
             />
           </View>

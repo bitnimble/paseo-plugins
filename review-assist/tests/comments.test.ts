@@ -3,7 +3,7 @@ import test from "node:test";
 import { ReviewAttachmentSchema } from "@getpaseo/protocol/messages";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { sendReview, workspaceAgents } from "../server/agents";
-import { commentLine, commentTarget } from "../shared/comments";
+import { commentLine, commentTarget, suggestible } from "../shared/comments";
 import { parseDiff } from "../shared/diff";
 import { fullBlocks } from "../shared/guide";
 import { DEFAULT_BRANCH_MODE, type DraftComment } from "../shared/protocol";
@@ -29,8 +29,17 @@ const [block] = fullBlocks(diff);
 const sides = blockSides(block, "a\nB\nc\nD\n", false);
 
 function draft(target: NonNullable<ReturnType<typeof commentTarget>>, id: string, body: string): DraftComment {
-  return { ...target, id, body, createdAt: "2026-10-21T00:00:00.000Z" };
+  return { ...target, id, body, suggestion: null, createdAt: "2026-10-21T00:00:00.000Z" };
 }
+
+test("only new-side lines all in the comment's context can take a suggestion", () => {
+  const added = commentTarget(block.file, sides.modified.lines, 1, 3);
+  const removed = commentTarget(block.file, sides.original.lines, 1, 1);
+  assert.ok(added != null && removed != null);
+  assert.equal(suggestible(added), "B\nc\nD");
+  assert.equal(suggestible(removed), null);
+  assert.equal(suggestible({ ...added, context: { ...added.context, lines: [] } }), null);
+});
 
 test("a comment anchors on its last line, in the file that line exists in", () => {
   const added = commentTarget(block.file, sides.modified.lines, 1, 3);
@@ -100,12 +109,13 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
     agentId: "recent",
     message: "  ",
     comments: [draft(added, "1", "Name these."), draft(removed, "2", "Keep b.\nIt's used.")],
+    applied: [draft({ ...added, startLine: 1, lineNumber: 1 }, "3", "")],
   });
   const [{ id, text, options }] = sent;
   assert.equal(id, "recent");
   assert.equal(
     text,
-    "Please address these review comments.\n\n- f.ts lines 2–4: Name these.\n- f.ts line 2 of the old file: Keep b.\n  It's used.",
+    "Please address these review comments.\n\n- f.ts lines 2–4: Name these.\n- f.ts line 2 of the old file: Keep b.\n  It's used.\n\nI've already made these edits myself:\n- f.ts line 1",
   );
   assert.equal(options.activeTurnBehavior, "steer");
   const attachment = ReviewAttachmentSchema.parse(options.attachments?.[0]);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { LINE_PREFIX, parseDiff } from "../shared/diff";
-import { hideWhitespaceChanges, splitRows } from "../shared/display";
+import { hideWhitespaceChanges, splitRows, wordChanges } from "../shared/display";
 
 function hunkLines(body: string[]) {
   const oldCount = body.filter((line) => !line.startsWith("+")).length;
@@ -12,6 +12,14 @@ function hunkLines(body: string[]) {
 
 const show = (lines: ReturnType<typeof hunkLines>) =>
   lines.map((line) => `${LINE_PREFIX[line.kind]}${line.text} ${line.oldNumber ?? "_"}/${line.newNumber ?? "_"}`);
+
+test("paired edits mark the words that changed, and rewritten lines mark none", () => {
+  const lines = hunkLines([" keep", "-const total = a + b;", "-old();", "+const total = a * c;", "+entirely different text"]);
+  const changes = wordChanges(lines);
+  const marked = (line: (typeof lines)[number]) =>
+    changes.get(line)?.map(({ start, end }) => line.text.slice(start, end)) ?? null;
+  assert.deepEqual(lines.map(marked), [null, ["+ b"], null, ["* c"], null]);
+});
 
 test("re-indented lines become context, real edits stay changes", () => {
   const lines = hunkLines([" if (a) {", "-  call(x);", "-  other();", "+    call(x);", "+    other(y);", " }"]);

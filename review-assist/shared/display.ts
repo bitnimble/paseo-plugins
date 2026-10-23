@@ -6,6 +6,9 @@ export interface SplitRow {
 }
 
 const MAX_ALIGNED_BLOCK = 400;
+const MAX_WORD_PAIRS = 200 * 200;
+const MIN_KEPT_SHARE = 0.4;
+const TOKEN = /\w+|\s+|[^\w\s]/g;
 
 /**
  * Shows lines that changed only in whitespace as context, the way `git diff -w` would. Display
@@ -66,12 +69,67 @@ function forEachBlock(
   flush();
 }
 
+/**
+ * The characters of each removed and added line that differ from the line it pairs with, the
+ * first removal of a run with the first addition and so on. Lines mostly rewritten get none.
+ */
+export function wordChanges(lines: readonly DiffLine[]): Map<DiffLine, Span[]> {
+  const changes = new Map<DiffLine, Span[]>();
+  forEachBlock(lines, () => undefined, (removed, added) => {
+    for (let i = 0; i < Math.min(removed.length, added.length); i++) {
+      const spans = changedSpans(removed[i].text, added[i].text);
+      if (spans == null) continue;
+      changes.set(removed[i], spans.old);
+      changes.set(added[i], spans.new);
+    }
+  });
+  return changes;
+}
+
+export interface Span {
+  readonly start: number;
+  readonly end: number;
+}
+
+function changedSpans(before: string, after: string): { old: Span[]; new: Span[] } | null {
+  const left = before.match(TOKEN) ?? [];
+  const right = after.match(TOKEN) ?? [];
+  if (left.length * right.length > MAX_WORD_PAIRS) return null;
+  const pairs = commonPairs(left, right);
+  const kept = pairs.reduce((sum, [i]) => sum + left[i].length, 0);
+  if (kept < MIN_KEPT_SHARE * Math.max(before.length, after.length)) return null;
+  return { old: unmatched(left, pairs.map(([i]) => i)), new: unmatched(right, pairs.map(([, j]) => j)) };
+}
+
+/** Spans of the tokens not in `matched`, joined across whitespace. */
+function unmatched(tokens: readonly string[], matched: readonly number[]): Span[] {
+  const kept = new Set(matched);
+  const text = tokens.join("");
+  const spans: Span[] = [];
+  let offset = 0;
+  tokens.forEach((token, i) => {
+    const end = offset + token.length;
+    const last = spans[spans.length - 1];
+    if (!kept.has(i)) {
+      if (last != null && /^\s*$/.test(text.slice(last.end, offset))) spans[spans.length - 1] = { start: last.start, end };
+      else spans.push({ start: offset, end });
+    }
+    offset = end;
+  });
+  return spans;
+}
+
 function alignIgnoringWhitespace(removed: readonly DiffLine[], added: readonly DiffLine[]): [number, number][] {
   const left = removed.map((line) => line.text.replace(/\s+/g, ""));
   const right = added.map((line) => line.text.replace(/\s+/g, ""));
   if (left.length * right.length > MAX_ALIGNED_BLOCK * MAX_ALIGNED_BLOCK) {
     return left.flatMap((text, i): [number, number][] => (text === right[i] ? [[i, i]] : []));
   }
+  return commonPairs(left, right);
+}
+
+/** Index pairs of a longest common subsequence of `left` and `right`. */
+function commonPairs(left: readonly string[], right: readonly string[]): [number, number][] {
   const lengths = Array.from({ length: left.length + 1 }, () => new Array<number>(right.length + 1).fill(0));
   for (let i = left.length - 1; i >= 0; i--) {
     for (let j = right.length - 1; j >= 0; j--) {

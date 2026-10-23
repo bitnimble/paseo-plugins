@@ -59,11 +59,11 @@ const EXTRA_CSS = `
 
 /** Monaco is mouse-and-keyboard software: phones and tablets get the built-in renderer. */
 export function isMonacoSupported(): boolean {
-  return Platform.OS === "web" && hasMouse();
+  return hasMouse();
 }
 
 export function hasMouse(): boolean {
-  return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
+  return Platform.OS === "web" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
 }
 
 export function asEditorContainer(node: object): EditorContainer {
