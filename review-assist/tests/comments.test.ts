@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ReviewAttachmentSchema } from "@getpaseo/protocol/messages";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { sendReview, workspaceAgents } from "../server/agents";
+import { sendReview, submitReview, workspaceAgents } from "../server/agents";
+import type { ReviewStates } from "../server/review-state";
 import { commentLine, commentTarget, suggestible } from "../shared/comments";
 import { parseDiff } from "../shared/diff";
 import { fullBlocks } from "../shared/guide";
@@ -128,6 +129,20 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
       ["f.ts", "old", 2, "Keep b.\nIt's used."],
     ],
   );
+});
+
+test("submitting needs an agent unless every comment is a suggested edit, and comments not yet sent", async () => {
+  const added = commentTarget(block.file, sides.modified.lines, 1, 1);
+  assert.ok(added != null);
+  const states = {
+    read: async () => ({ viewed: [], comments: [draft(added, "1", "Rename.")] }),
+  } as unknown as ReviewStates;
+  const paseo = {} as PluginHandlerContext["paseo"];
+  const submit = (commentIds: string[]) =>
+    submitReview(paseo, states, { directory: "/repo", mode: DEFAULT_BRANCH_MODE, baseRef: "abc123", reviewer: null, message: "", commentIds });
+
+  assert.deepEqual(await submit(["1"]), { status: "failed", error: "Pick an agent for the comments." });
+  assert.deepEqual(await submit(["gone"]), { status: "failed", error: "These comments were already sent or deleted." });
 });
 
 test("with no agent to send to, the comments start one in the workspace", async () => {
