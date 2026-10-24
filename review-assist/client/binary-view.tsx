@@ -85,7 +85,7 @@ function Comparison({
   }
   if (sides.some((side) => side?.status === "image")) {
     return (
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16, padding: 12 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 16, padding: 12 }}>
         {before == null ? null : <ImageSide theme={theme} label="Before" side={before} edge={theme.colors.statusDanger} />}
         {after == null ? null : <ImageSide theme={theme} label="After" side={after} edge={theme.colors.statusSuccess} />}
       </View>
@@ -107,28 +107,28 @@ function ImageSide({ theme, label, side, edge }: { theme: PluginTheme; label: st
     image == null
       ? "Not shown"
       : [size == null ? null : `${size.width} × ${size.height}`, formatBytes(image.bytes)].filter(Boolean).join(" · ");
-  const unavailable = uri == null || measured === "failed";
+  const empty = size != null && (size.width === 0 || size.height === 0);
+  const unavailable = uri == null || measured === "failed" || empty;
+  const fit =
+    size == null || empty
+      ? null
+      : { width: Math.min(size.width, (MAX_IMAGE_HEIGHT * size.width) / size.height), aspectRatio: size.width / size.height };
   return (
-    <View style={{ flexGrow: 1, flexBasis: 240, maxWidth: size == null ? undefined : Math.max(size.width, 240), gap: 6 }}>
+    <View style={{ flexGrow: 1, flexBasis: 240, maxWidth: fit == null ? undefined : Math.max(fit.width, 240), alignItems: "center", gap: 6 }}>
       <Text style={muted}>
         <Text style={{ color: edge }}>{label}</Text> {details}
       </Text>
-      <View style={{ alignSelf: "flex-start", maxWidth: "100%", borderWidth: 1, borderColor: edge, backgroundColor: theme.colors.surface1 }}>
+      <View style={{ maxWidth: "100%", borderWidth: 1, borderColor: edge, backgroundColor: theme.colors.surface1 }}>
         {unavailable ? (
           <Text style={{ ...muted, padding: 12 }}>Preview unavailable</Text>
-        ) : size == null ? (
+        ) : fit == null ? (
           <View style={{ width: 240, height: 120 }} />
         ) : (
           <Image
             accessibilityLabel={`${label}: image`}
             source={{ uri }}
             resizeMode="contain"
-            style={{
-              width: size.width,
-              maxWidth: "100%",
-              maxHeight: MAX_IMAGE_HEIGHT,
-              aspectRatio: size.width / Math.max(size.height, 1),
-            }}
+            style={{ ...fit, maxWidth: "100%" }}
           />
         )}
       </View>

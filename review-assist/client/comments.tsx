@@ -9,7 +9,7 @@ import type { DraftComment } from "../shared/protocol";
 import type { SideLine } from "../shared/sides";
 import { Button } from "./controls";
 import { CentreAboveKeyboard } from "./keyboard";
-import { MONOSPACE, tint } from "./palette";
+import { CODE_SURFACE, MONOSPACE, tint } from "./palette";
 import { hasMouse } from "./web";
 
 export type CommentDraft =
@@ -212,7 +212,7 @@ function SuggestionPreview({ theme, suggestion }: { theme: PluginTheme; suggesti
   return (
     <View style={{ gap: 4 }}>
       <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>Suggested change, made when sent</Text>
-      <View style={{ borderRadius: 6, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+      <View style={{ borderRadius: 6, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }} dataSet={CODE_SURFACE}>
         {rows(suggestion.original, "-", colors.statusDanger)}
         {rows(suggestion.replacement, "+", colors.statusSuccess)}
       </View>
@@ -276,17 +276,19 @@ function CommentComposer({
           <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>
             Replacement, made on send without the agent; empty deletes the lines
           </Text>
-          <TextInput
-            accessibilityLabel="Suggested replacement"
-            autoFocus
-            multiline
-            value={suggestion.replacement}
-            onChangeText={setReplacement}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            style={{ ...inputStyle(theme, 0), ...suggestionCode }}
-          />
+          <View dataSet={CODE_SURFACE}>
+            <TextInput
+              accessibilityLabel="Suggested replacement"
+              autoFocus
+              multiline
+              value={suggestion.replacement}
+              onChangeText={setReplacement}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              style={{ ...inputStyle(theme, 0), ...suggestionCode }}
+            />
+          </View>
         </View>
       )}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

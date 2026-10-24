@@ -3,7 +3,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
-import { changeIcon, compactCount, formatBytes } from "./palette";
+import { changeIcon, compactCount, formatBytes, statusTint, tint } from "./palette";
 
 export function Tabs<Value extends string>({
   theme,
@@ -232,6 +232,7 @@ export function Notice({
         ? { name: "TriangleAlert", color: theme.colors.statusWarning }
         : { name: "Info", color: theme.colors.foregroundMuted };
   const icon = { ...toneIcon, name: iconName ?? toneIcon.name };
+  const alertColor = tone === "warning" || tone === "danger" ? icon.color : null;
   return (
     <View
       style={{
@@ -245,8 +246,10 @@ export function Notice({
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderBottomWidth: 1,
-        borderBottomColor: theme.colors.border,
-        backgroundColor: theme.colors.surface1,
+        borderBottomColor: alertColor == null ? theme.colors.border : tint(alertColor, 0.5),
+        borderLeftWidth: alertColor == null ? 0 : 3,
+        borderLeftColor: alertColor ?? undefined,
+        backgroundColor: alertColor == null ? theme.colors.surface1 : statusTint(theme, alertColor),
       }}
     >
       {tone === "progress" ? (

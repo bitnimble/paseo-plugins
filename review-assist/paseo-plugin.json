@@ -1,8 +1,9 @@
 {
   "id": "review-assist",
   "name": "Review assist",
-  "description": "Guided review: splits a large diff into sections you review one at a time",
-  "media": [],
+  "description": "Review a large diff as agent-ordered sections, comment on lines and send the comments or suggested edits back to an agent.",
+  "icon": "assets/icon.png",
+  "media": ["assets/guided-review.png", "assets/suggested-edit.png", "assets/send-comments.png", "assets/phone.png"],
   "build": [
     ["npm", "ci", "--omit=dev", "--ignore-scripts"],
     ["npm", "run", "bundle-monaco"],

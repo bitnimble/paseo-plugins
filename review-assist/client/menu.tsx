@@ -1,21 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { ToolbarTrigger } from "./controls";
 
 const NARROW_WIDTH = 720;
+const EDGE_GAP = 8;
 
-/**
- * A toolbar trigger with its menu anchored below. Render `MenuBackdrop` once under the toolbar
- * so a press anywhere else in the panel closes it.
- */
+/** Render `MenuBackdrop` once under the toolbar so a press anywhere else in the panel closes it. */
 export function Dropdown({
   theme,
   label,
   icon,
   open,
-  align = "left",
   onOpenChange,
   children,
 }: {
@@ -23,20 +20,37 @@ export function Dropdown({
   label: string;
   icon?: string;
   open: boolean;
-  align?: "left" | "right";
   onOpenChange(open: boolean): void;
   children: ReactNode;
 }) {
+  const trigger = useRef<View>(null);
+  const screen = useWindowDimensions();
+  const [triggerLeft, setTriggerLeft] = useState<number | null>(null);
+  const [menuWidth, setMenuWidth] = useState<number | null>(null);
+  const placed = open && triggerLeft != null && menuWidth != null;
+  const align = placed && triggerLeft + menuWidth > screen.width - EDGE_GAP ? "right" : "left";
+  const toggle = (): void => {
+    if (open) {
+      onOpenChange(false);
+      return;
+    }
+    setTriggerLeft(null);
+    setMenuWidth(null);
+    trigger.current?.measureInWindow((x) => setTriggerLeft(x));
+    onOpenChange(true);
+  };
   return (
-    <View>
-      <ToolbarTrigger theme={theme} label={label} icon={icon} open={open} onPress={() => onOpenChange(!open)} />
+    <View ref={trigger} collapsable={false}>
+      <ToolbarTrigger theme={theme} label={label} icon={icon} open={open} onPress={toggle} />
       {open ? (
         <View
           accessibilityRole="menu"
+          onLayout={(event) => setMenuWidth(event.nativeEvent.layout.width)}
           style={{
             position: "absolute",
             top: "100%",
             [align]: 0,
+            opacity: placed ? 1 : 0,
             marginTop: 4,
             minWidth: 248,
             paddingVertical: 4,

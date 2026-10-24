@@ -71,6 +71,11 @@ export function legibleSyntax(theme: PluginTheme, palette: SyntaxPalette): Synta
   );
 }
 
+/** At the strengths of Paseo's own status tints. */
+export function statusTint(theme: PluginTheme, color: string): string {
+  return tint(color, isDark(theme) ? 0.16 : 0.12);
+}
+
 /** Transparent for colors that are neither hex nor rgb. */
 export function tint(color: string, alpha: number): string {
   const rgb = parseColor(color);

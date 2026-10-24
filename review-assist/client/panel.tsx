@@ -139,7 +139,6 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
           theme={theme}
           label="View"
           icon="SlidersHorizontal"
-          align={narrow ? "left" : "right"}
           open={menu === "view"}
           onOpenChange={openMenu("view")}
         >

@@ -69,7 +69,16 @@ export interface Decoration {
     className?: string;
     marginClassName?: string;
     glyphMarginClassName?: string;
+    firstLineDecorationClassName?: string;
   };
+}
+
+/** An end line of 0 means the change has no lines on that side. */
+export interface LineChange {
+  readonly originalStartLineNumber: number;
+  readonly originalEndLineNumber: number;
+  readonly modifiedStartLineNumber: number;
+  readonly modifiedEndLineNumber: number;
 }
 
 export interface DecorationsCollection {
@@ -95,6 +104,8 @@ export interface DiffEditor {
   setModel(model: { original: MonacoModel; modified: MonacoModel } | null): void;
   getOriginalEditor(): CodeEditor;
   getModifiedEditor(): CodeEditor;
+  getLineChanges(): readonly LineChange[] | null;
+  onDidUpdateDiff(listener: () => void): IDisposable;
   updateOptions(options: Readonly<Record<string, unknown>>): void;
   dispose(): void;
 }

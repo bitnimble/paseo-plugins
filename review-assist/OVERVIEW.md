@@ -47,9 +47,10 @@ and hover for its type, through a language server the daemon runs for the reposi
 repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
 behind them. On phones and tablets, or when Monaco cannot load, the panel shows the diff with
 Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
-row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap. Changed images show before and after, as GitHub does; a text
-file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for binary. Git LFS
-files show only their pointer's size change until **Fetch and compare** downloads both sides.
+row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap.
+Changed images show before and after, as GitHub does; a text file whose diff `.gitattributes` turns
+off (`-diff`) says so instead of passing for binary. Git LFS files show only their pointer's size
+change until **Fetch and compare** downloads both sides.
 
 Mermaid flowcharts and class diagrams (`.mmd`, `.mermaid`) open as a drawing of the change, with
 **Visual** and **Text** in the file's header to switch to the text diff. Removed nodes, links and
@@ -72,12 +73,13 @@ workspace. A banner offers to, and **View → Hover and go to definition** switc
 syntax highlighting works regardless. Trust is decided per workspace and kept on the daemon, which
 refuses to start a language server for a repository no trusted workspace is in.
 
-Press **Generate guided review**. The agent runs in the reviewed workspace while it works, so you
-can open it to follow along, and it is archived once it answers. A diff too large for one agent is
-split by path into parts, one agent each, up to four at a time, and one more agent merges and orders
-their sections; a part whose agent fails leaves its lines under **Other changes**. The result is cached per diff on
-the daemon; when the diff changes, the panel says so and offers to regenerate. Reading the diff
-uses a copy of the git index, so your staging area is never touched.
+Press **Generate guided review**. The diff goes to an agent on the model picked in the plugin's
+settings, and so to that model's provider. The agent runs in the reviewed workspace while it works,
+so you can open it to follow along, and it is archived once it answers. A diff too large for one
+agent is split by path into parts, one agent each, up to four at a time, and one more agent merges
+and orders their sections; a part whose agent fails leaves its lines under **Other changes**. The result is
+cached per diff on the daemon; when the diff changes, the panel says so and offers to regenerate.
+Reading the diff uses a copy of the git index, so your staging area is never touched.
 
 **Viewed** marks follow content, not sections: after a regeneration, a file stays viewed in a
 section while the lines that section shows are unchanged, and goes back to unviewed once any of
@@ -90,10 +92,11 @@ all of them. In the built-in view, tap a line number, and long-press another to 
 Comments are drafts kept on the daemon until you send them. **N comments** in the toolbar sends
 them all to an agent in the workspace, with an optional message, as the same review attachment
 Paseo's Changes panel sends; a running agent takes them into its current turn. In a workspace
-with no agent yet, pick a model, mode and thinking level, and sending starts one with them.
+with no agent yet, pick a model, mode and thinking level, and sending starts one with them, so the
+comments go to that model's provider.
 
-**Edit selected lines**, on a comment on the new side, fills in the lines' current text for you to edit;
-left empty, it deletes them. Sending writes the suggestions into the working tree itself, before
+**Edit selected lines**, on a comment on the new side, fills in the lines' current text for you to
+edit; left empty, it deletes them. Sending writes the suggestions into the working tree itself, before
 and without the agent, which only hears which lines were edited. A suggestion whose lines have
 changed since stops the send until you edit or delete it. With only suggestions, the toolbar's
 **Make N suggested edits** applies them without an agent.
@@ -104,9 +107,10 @@ changed since stops the send until you edit or delete it. With only suggestions,
 of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and GPT-6-Sol that a ready provider offers, and
 otherwise the first ready provider's default model.
 
-**Updates**, on the same page, checks the plugin's install source for a newer version and installs it
-through the daemon's `paseo` CLI, as `paseo plugin update review-assist` does. The build runs in the
-background, and the plugin restarts on the new version once it's ready.
+**Updates**, on the same page, asks Paseo whether the source the plugin was installed from has a
+newer version, and links to the changes. Nothing is installed until you press **Update**, which runs
+Paseo's own plugin updater on the daemon host. The build runs in the background, and the plugin
+restarts on the new version once it's ready.
 
 Guided reviews, viewed marks, draft comments and workspace trust are stored on the daemon host under
 `~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).

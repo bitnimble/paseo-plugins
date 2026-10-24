@@ -18,12 +18,12 @@ import {
   scopeEdges,
 } from "./comments";
 import { ShowFullDiff } from "./controls";
-import type { CodeEditor, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
+import type { CodeEditor, Decoration, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE, MONOSPACE } from "./palette";
-import { asEditorContainer, asOverflowHost } from "./web";
+import { asEditorContainer, asOverflowHost, signFirstDeletedRows } from "./web";
 
 const LINE_HEIGHT = 18;
 const SCROLLBAR_SIZE = 10;
@@ -32,6 +32,8 @@ const CARD_HEIGHT_ESTIMATE = 96;
 // Above the diff editor's own zones on the same line, such as inline removed lines.
 const ZONE_ORDINAL = 10_000;
 const GLYPH_CLASS = "codicon codicon-add review-comment-glyph";
+const INSERT_SIGN = "review-sign insert-sign codicon codicon-diff-insert";
+const DELETE_SIGN = "review-sign delete-sign codicon codicon-diff-remove";
 
 type SideName = "original" | "modified";
 
@@ -213,6 +215,31 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
   }, [editors, theme, palette]);
 
   useEffect(() => {
+    if (editors?.diff == null || container == null) return;
+    return signFirstDeletedRows(container);
+  }, [editors, container]);
+
+  useEffect(() => {
+    if (editors?.diff == null || disposed.current.has(editors)) return;
+    const { diff, original, modified } = editors;
+    const added = modified?.createDecorationsCollection();
+    const removed = original?.createDecorationsCollection();
+    const render = (): void => {
+      const changes = diff.getLineChanges() ?? [];
+      added?.set(changes.flatMap((change) => signs(change.modifiedStartLineNumber, change.modifiedEndLineNumber, INSERT_SIGN)));
+      removed?.set(changes.flatMap((change) => signs(change.originalStartLineNumber, change.originalEndLineNumber, DELETE_SIGN)));
+    };
+    const listener = diff.onDidUpdateDiff(render);
+    render();
+    return () => {
+      listener.dispose();
+      if (disposed.current.has(editors)) return;
+      added?.clear();
+      removed?.clear();
+    };
+  }, [editors]);
+
+  useEffect(() => {
     if (editors == null || disposed.current.has(editors)) return;
     const glyphMargin = editors.monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN;
     const listeners: IDisposable[] = [];
@@ -375,6 +402,15 @@ function selectedLines(selection: MonacoRange | null, line: number): [number, nu
 
 function lineRange(start: number, end: number): MonacoRange {
   return { startLineNumber: start, startColumn: 1, endLineNumber: end, endColumn: 1 };
+}
+
+/** One per line: a first-line decoration marks only the first line of its range. */
+function signs(start: number, end: number, className: string): Decoration[] {
+  if (end === 0) return [];
+  return Array.from({ length: end - start + 1 }, (_, i) => ({
+    range: lineRange(start + i, start + i),
+    options: { firstLineDecorationClassName: className },
+  }));
 }
 
 function innerEditors(editors: Editors): CodeEditor[] {

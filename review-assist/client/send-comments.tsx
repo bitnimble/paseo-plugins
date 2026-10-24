@@ -74,10 +74,6 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
       <ToolbarTrigger theme={theme} label={comments} icon="MessageSquare" onPress={() => setOpen(true)} />
       <Modal title={`Send ${comments}`} open={open} onOpenChange={setOpen}>
         <Modal.Content>
-          <Text style={muted}>
-            The agent gets them as a review, the way the Changes panel sends comments, and they are cleared here.
-            {edits === 0 ? "" : ` ${edits === 1 ? "The suggested edit is" : `The ${edits} suggested edits are`} made first, without the agent.`}
-          </Text>
           <View style={{ gap: 2 }}>
             {findingAgents ? (
               <Text style={muted}>Finding this workspace's agents…</Text>
@@ -182,7 +178,7 @@ function NewAgent({
     items.map(({ id, label }) => ({ value: id, label }));
   return (
     <>
-      <Text style={muted}>No agent in this workspace yet. Sending starts one with the comments.</Text>
+      <Text style={muted}>No agent session is available in this workspace. Submitting comments will start a new agent with the review comments.</Text>
       <SettingsCard>
         <SettingsRow label="Model">
           <Pressable
