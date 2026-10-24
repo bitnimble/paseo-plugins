@@ -1,13 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { DiffFile } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 import { fileRpc, highlightRpc, leaseRpc, lspRpc, monacoRpc, paletteRpc } from "../shared/protocol";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { isDark } from "./palette";
+import { isDark, legibleSyntax } from "./palette";
 import type { FileSyntax } from "./syntax";
 
 const LEASE_REFRESH_MS = 30_000;
@@ -57,7 +57,8 @@ export function usePalette(theme: PluginTheme): SyntaxPalette | null {
     queryFn: () => read({ scheme }),
     staleTime: Infinity,
   });
-  return query.data?.colors ?? null;
+  const colors = query.data?.colors;
+  return useMemo(() => (colors == null ? null : legibleSyntax(theme, colors)), [theme, colors]);
 }
 
 /** Connects Monaco to the daemon; `trustedRoot` adds language features for its files. */

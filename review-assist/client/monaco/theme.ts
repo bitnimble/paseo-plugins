@@ -1,6 +1,6 @@
 import type { HighlightStyle } from "@getpaseo/highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { IN_SCOPE_ALPHA, hexTint, isDark } from "../palette";
+import { IN_SCOPE_ALPHA, diffAlpha, hexTint, isDark } from "../palette";
 import type { MonacoThemeData } from "./api";
 
 export const THEME_NAME = "paseo-review";
@@ -39,6 +39,7 @@ const TOKEN_ROLES: readonly (readonly [string, HighlightStyle])[] = [
 export function monacoTheme(theme: PluginTheme, palette: SyntaxPalette): MonacoThemeData {
   const { colors } = theme;
   const solid = (color: string) => hexTint(color);
+  const alpha = diffAlpha(theme);
   return {
     base: isDark(theme) ? "vs-dark" : "vs",
     inherit: true,
@@ -57,10 +58,10 @@ export function monacoTheme(theme: PluginTheme, palette: SyntaxPalette): MonacoT
       "editor.rangeHighlightBackground": hexTint(colors.foreground, IN_SCOPE_ALPHA.fill),
       "editor.rangeHighlightBorder": hexTint(colors.foreground, IN_SCOPE_ALPHA.edge),
       focusBorder: hexTint(colors.accent, 0.6),
-      "diffEditor.insertedLineBackground": hexTint(colors.statusSuccess, 0.15),
-      "diffEditor.removedLineBackground": hexTint(colors.statusDanger, 0.1),
-      "diffEditor.insertedTextBackground": hexTint(colors.statusSuccess, 0.3),
-      "diffEditor.removedTextBackground": hexTint(colors.statusDanger, 0.25),
+      "diffEditor.insertedLineBackground": hexTint(colors.statusSuccess, alpha.addLine),
+      "diffEditor.removedLineBackground": hexTint(colors.statusDanger, alpha.delLine),
+      "diffEditor.insertedTextBackground": hexTint(colors.statusSuccess, alpha.addMark),
+      "diffEditor.removedTextBackground": hexTint(colors.statusDanger, alpha.delMark),
       "diffEditorGutter.insertedLineBackground": hexTint(colors.statusSuccess, 0.2),
       "diffEditorGutter.removedLineBackground": hexTint(colors.statusDanger, 0.15),
       "diffEditor.border": solid(colors.border),

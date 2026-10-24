@@ -85,10 +85,10 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     change.action === "save" ? states.saveComment(target, change.comment) : states.deleteComments(target, [change.id]),
   );
   server.handle(agentsRpc, async ({ workspaceId }, { paseo }) => ({ agents: await workspaceAgents(paseo, workspaceId) }));
-  server.handle(submitRpc, async ({ commentIds, agentId, ...input }, { paseo }) => {
+  server.handle(submitRpc, async ({ commentIds, reviewer, ...input }, { paseo }) => {
     const comments = (await states.read(input)).comments.filter(({ id }) => commentIds.includes(id));
-    if (comments.length === 0) return { status: "failed" as const, error: "These comments were already sent or deleted." };
-    if (agentId == null && !comments.every(isEdit)) return { status: "failed" as const, error: "Pick an agent for the comments." };
+    if (comments.length === 0) return failed("These comments were already sent or deleted.");
+    if (reviewer == null && !comments.every(isEdit)) return failed("Pick an agent for the comments.");
     let edited: Awaited<ReturnType<typeof applySuggestions>>;
     try {
       edited = await applySuggestions(await repoRoot(input.directory), comments);
@@ -100,10 +100,10 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     await states.deleteComments(input, applied.map(({ id }) => id));
     for (const comment of rest) await states.saveComment(input, comment);
     try {
-      if (agentId != null && rest.length > 0) await sendReview(paseo, { ...input, agentId, comments: rest, applied });
+      if (reviewer != null && rest.length > 0) await sendReview(paseo, { ...input, reviewer, comments: rest, applied });
     } catch (error) {
-      const made = applied.length === 0 ? "" : `Made the suggested ${applied.length === 1 ? "edit" : "edits"}, but `;
-      return { status: "failed" as const, error: `${made}${made === "" ? "" : "sending failed: "}${messageOf(error)}` };
+      const made = applied.length === 0 ? "" : `Made the suggested ${applied.length === 1 ? "edit" : "edits"}, but sending failed: `;
+      return failed(`${made}${messageOf(error)}`);
     }
     return { status: "sent" as const, state: await states.deleteComments(input, commentIds) };
   });

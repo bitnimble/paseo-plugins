@@ -1,11 +1,12 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { rangeLabel } from "../shared/comments";
-import type { AgentChoice, DraftComment } from "../shared/protocol";
+import type { AgentChoice, DraftComment, Reviewer } from "../shared/protocol";
 import type { Target } from "./slots";
 
 type Paseo = PluginHandlerContext["paseo"];
 
 const DEFAULT_MESSAGE = "Please address these review comments.";
+const NEW_AGENT_TITLE = "Address review comments";
 
 export async function workspaceAgents(paseo: Paseo, workspaceId: string): Promise<AgentChoice[]> {
   const { entries } = await paseo.agents.list();
@@ -23,7 +24,7 @@ export async function workspaceAgents(paseo: Paseo, workspaceId: string): Promis
 export async function sendReview(
   paseo: Paseo,
   input: Target & {
-    agentId: string;
+    reviewer: Reviewer;
     baseRef: string;
     message: string;
     comments: readonly DraftComment[];
@@ -36,25 +37,35 @@ export async function sendReview(
   const applied = input.applied ?? [];
   const edits = applied.length === 0 ? [] : ["", "I've already made these edits myself:", ...applied.map((comment) => `- ${where(comment)}`)];
   const text = [input.message.trim() || DEFAULT_MESSAGE, "", ...listed, ...edits].join("\n");
-  await paseo.agents.ref(input.agentId).send(text, {
-    activeTurnBehavior: "steer",
-    attachments: [
-      {
-        type: "review",
-        mimeType: "application/paseo-review",
-        cwd: input.directory,
-        mode: input.mode.kind === "branch" ? "base" : "uncommitted",
-        baseRef: input.mode.kind === "branch" ? input.baseRef : null,
-        comments: input.comments.map((comment) => ({
-          filePath: comment.filePath,
-          side: comment.side,
-          lineNumber: comment.lineNumber,
-          // The attachment anchors one line, so a range says which lines it covers.
-          body: comment.startLine === comment.lineNumber ? comment.body : `${rangeLabel(comment)}: ${comment.body}`,
-          context: comment.context,
-        })),
-      },
-    ],
+  const attachment = {
+    type: "review" as const,
+    mimeType: "application/paseo-review" as const,
+    cwd: input.directory,
+    mode: input.mode.kind === "branch" ? ("base" as const) : ("uncommitted" as const),
+    baseRef: input.mode.kind === "branch" ? input.baseRef : null,
+    comments: input.comments.map((comment) => ({
+      filePath: comment.filePath,
+      side: comment.side,
+      lineNumber: comment.lineNumber,
+      // The attachment anchors one line, so a range says which lines it covers.
+      body: comment.startLine === comment.lineNumber ? comment.body : `${rangeLabel(comment)}: ${comment.body}`,
+      context: comment.context,
+    })),
+  };
+  const { reviewer } = input;
+  if (reviewer.kind === "agent") {
+    await paseo.agents.ref(reviewer.id).send(text, { activeTurnBehavior: "steer", attachments: [attachment] });
+    return;
+  }
+  await paseo.workspaces.ref(reviewer.workspaceId).agents.create({
+    config: {
+      provider: reviewer.model,
+      ...(reviewer.modeId == null ? {} : { modeId: reviewer.modeId }),
+      ...(reviewer.thinkingOptionId == null ? {} : { thinkingOptionId: reviewer.thinkingOptionId }),
+    },
+    title: NEW_AGENT_TITLE,
+    prompt: text,
+    attachments: [attachment],
   });
 }
 

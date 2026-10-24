@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type FileFacts, NO_FACTS } from "./diff";
 import { guideSectionSchema } from "./guide";
 
-const diffModeSchema =z.discriminatedUnion("kind", [
+const diffModeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("uncommitted") }),
   /** `branch` null is the repository's default branch. */
   z.object({ kind: z.literal("branch"), branch: z.string().nullable() }),
@@ -203,7 +203,7 @@ export const highlightRpc = defineRpc({
   ]),
 });
 
-const colorSchemeSchema =z.enum(["dark", "light"]);
+const colorSchemeSchema = z.enum(["dark", "light"]);
 
 export const paletteRpc = defineRpc({
   name: "review.palette",
@@ -263,7 +263,7 @@ export const mermaidRpc = defineRpc({
   output: mermaidOutcomeSchema,
 });
 
-export const MONACO_ASSETS =["script", "css", "worker"] as const;
+export const MONACO_ASSETS = ["script", "css", "worker"] as const;
 export type MonacoAsset = (typeof MONACO_ASSETS)[number];
 
 /** Read in pieces from `offset` until `total`, so no single message carries megabytes. */
@@ -377,6 +377,20 @@ export const agentsRpc = defineRpc({
   output: z.object({ agents: z.array(agentChoiceSchema) }),
 });
 
+const reviewerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("agent"), id: z.string() }),
+  /** An agent to start in the workspace, with the review as its first message. */
+  z.object({
+    kind: z.literal("new"),
+    workspaceId: z.string(),
+    /** `provider/model`. */
+    model: z.string(),
+    modeId: z.string().nullable(),
+    thinkingOptionId: z.string().nullable(),
+  }),
+]);
+export type Reviewer = z.infer<typeof reviewerSchema>;
+
 /** Sends the comments as one review attachment and drops them once the agent has them. */
 export const submitRpc = defineRpc({
   name: "review.submit",
@@ -384,7 +398,7 @@ export const submitRpc = defineRpc({
     ...target,
     baseRef: z.string(),
     /** Null when every comment is a suggested edit, which needs no agent. */
-    agentId: z.string().nullable(),
+    reviewer: reviewerSchema.nullable(),
     message: z.string(),
     commentIds: z.array(z.string()).min(1),
   }),

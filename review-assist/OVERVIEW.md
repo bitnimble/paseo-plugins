@@ -89,7 +89,8 @@ Hover a line in Monaco and press **+** to comment on it; select several lines fi
 all of them. In the built-in view, tap a line number, and long-press another to widen the comment.
 Comments are drafts kept on the daemon until you send them. **N comments** in the toolbar sends
 them all to an agent in the workspace, with an optional message, as the same review attachment
-Paseo's Changes panel sends; a running agent takes them into its current turn.
+Paseo's Changes panel sends; a running agent takes them into its current turn. In a workspace
+with no agent yet, pick a model, mode and thinking level, and sending starts one with them.
 
 **Edit selected lines**, on a comment on the new side, fills in the lines' current text for you to edit;
 left empty, it deletes them. Sending writes the suggestions into the working tree itself, before

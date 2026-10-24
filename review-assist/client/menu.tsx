@@ -73,6 +73,7 @@ export function MenuItem({
   label,
   checked,
   hint,
+  trailing,
   disabled = false,
   onPress,
 }: {
@@ -81,6 +82,7 @@ export function MenuItem({
   /** Omit for an action rather than an option. */
   checked?: boolean;
   hint?: string;
+  trailing?: string;
   disabled?: boolean;
   onPress(): void;
 }) {
@@ -114,6 +116,7 @@ export function MenuItem({
         <Text style={{ fontSize: 14, lineHeight: 18, color: theme.colors.foreground }}>{label}</Text>
         {hint == null ? null : <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>{hint}</Text>}
       </View>
+      {trailing == null ? null : <Icon name={trailing} size={14} color={theme.colors.foregroundMuted} />}
     </Pressable>
   );
 }

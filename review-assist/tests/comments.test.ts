@@ -106,7 +106,7 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
     directory: "/repo",
     mode: DEFAULT_BRANCH_MODE,
     baseRef: "abc123",
-    agentId: "recent",
+    reviewer: { kind: "agent", id: "recent" },
     message: "  ",
     comments: [draft(added, "1", "Name these."), draft(removed, "2", "Keep b.\nIt's used.")],
     applied: [draft({ ...added, startLine: 1, lineNumber: 1 }, "3", "")],
@@ -128,4 +128,35 @@ test("comments go to the agent as Paseo's review attachment, steering its turn",
       ["f.ts", "old", 2, "Keep b.\nIt's used."],
     ],
   );
+});
+
+test("with no agent to send to, the comments start one in the workspace", async () => {
+  const added = commentTarget(block.file, sides.modified.lines, 1, 1);
+  assert.ok(added != null);
+  const created: { workspaceId: string; input: { config: object; prompt: string; attachments: unknown[] } }[] = [];
+  const paseo = {
+    workspaces: {
+      ref: (workspaceId: string) => ({
+        agents: {
+          create: async (input: (typeof created)[number]["input"]) => {
+            created.push({ workspaceId, input });
+          },
+        },
+      }),
+    },
+  } as unknown as PluginHandlerContext["paseo"];
+
+  await sendReview(paseo, {
+    directory: "/repo",
+    mode: DEFAULT_BRANCH_MODE,
+    baseRef: "abc123",
+    reviewer: { kind: "new", workspaceId: "w", model: "claude/opus", modeId: "plan", thinkingOptionId: null },
+    message: "",
+    comments: [draft(added, "1", "Rename.")],
+  });
+  const [{ workspaceId, input }] = created;
+  assert.equal(workspaceId, "w");
+  assert.deepEqual(input.config, { provider: "claude/opus", modeId: "plan" });
+  assert.equal(input.prompt, "Please address these review comments.\n\n- f.ts line 2: Rename.");
+  assert.equal(ReviewAttachmentSchema.parse(input.attachments[0]).comments[0].body, "Rename.");
 });

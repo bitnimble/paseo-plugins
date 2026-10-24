@@ -7,7 +7,7 @@ import {
   SettingsSection,
   SettingsSelect,
 } from "@getpaseo/plugin/client/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Text } from "react-native";
 import { messageOf } from "../shared/errors";
 import { automaticChoice, modelChoices } from "../shared/models";
@@ -27,13 +27,20 @@ export function ReviewSettingsScreen(props: PluginSurfaceProps) {
   );
 }
 
-function ModelSettings({ theme }: PluginSurfaceProps) {
-  const settings = useSettings(reviewSettings);
+type ProvidersSnapshot = Awaited<ReturnType<ReturnType<typeof usePaseo>["providers"]["waitForReady"]>>;
+
+export function useProviders(enabled = true): UseQueryResult<ProvidersSnapshot> {
   const paseo = usePaseo();
-  const providers = useQuery({
+  return useQuery({
     queryKey: ["review-providers"],
     queryFn: () => paseo.providers.waitForReady({ timeoutMs: 30_000 }),
+    enabled,
   });
+}
+
+function ModelSettings({ theme }: PluginSurfaceProps) {
+  const settings = useSettings(reviewSettings);
+  const providers = useProviders();
 
   if (settings.status !== "ready") {
     return (

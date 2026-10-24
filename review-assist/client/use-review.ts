@@ -9,6 +9,7 @@ import {
   type DiffBase,
   type DiffMode,
   type DraftComment,
+  type Reviewer,
   type GuideJob,
   type GuideRecord,
   type ReviewState,
@@ -71,10 +72,10 @@ export interface Review {
   deleteComment(id: string): void;
   setTrust(trusted: boolean): void;
   /**
-   * Resolves to an error message, or null once the agent has the comments. `agentId` may be null
+   * Resolves to an error message, or null once the agent has the comments. `reviewer` may be null
    * when every comment is a suggested edit.
    */
-  submit(input: { agentId: string | null; message: string }): Promise<string | null>;
+  submit(input: { reviewer: Reviewer | null; message: string }): Promise<string | null>;
 }
 
 export function commentStore(review: Review): CommentStore {
@@ -210,11 +211,11 @@ export function useReview(input: {
     saveComment: (comment) => stateWrite.mutate({ kind: "save", comment }),
     deleteComment: (id) => stateWrite.mutate({ kind: "delete", id }),
     setTrust: (trusted) => trustWrite.mutate(trusted),
-    submit: async ({ agentId, message }) => {
+    submit: async ({ reviewer, message }) => {
       if (live.status !== "ready") return "The diff is still loading.";
       const commentIds = (stateQuery.data ?? EMPTY_STATE).comments.map(({ id }) => id);
       try {
-        const result = await sendComments({ ...target, baseRef: live.base.sha, agentId, message, commentIds });
+        const result = await sendComments({ ...target, baseRef: live.base.sha, reviewer, message, commentIds });
         if (result.status === "failed") return result.error;
         queryClient.setQueryData(stateKey, result.state);
         return null;

@@ -42,7 +42,7 @@ import { ScrollLock } from "./zoomable-image";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { CODE_SURFACE, IN_SCOPE_ALPHA, MONOSPACE, tint } from "./palette";
+import { CODE_SURFACE, IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
 import { type ColoredText, type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
 import { isMonacoSupported } from "./web";
@@ -991,6 +991,7 @@ function gutterWidth(file: DiffFile): number {
 
 function createStyles(theme: PluginTheme) {
   const { colors } = theme;
+  const alpha = diffAlpha(theme);
   const code = { fontFamily: MONOSPACE, fontSize: CODE_FONT_SIZE, lineHeight: CODE_LINE_HEIGHT } as const;
   const row = { flexDirection: "row" } as const;
   const number = {
@@ -1032,8 +1033,8 @@ function createStyles(theme: PluginTheme) {
     sideways: { minWidth: "100%" },
     sidewaysColumn: { flexGrow: 1 },
     row,
-    addRow: { ...row, backgroundColor: tint(colors.statusSuccess, 0.15) },
-    delRow: { ...row, backgroundColor: tint(colors.statusDanger, 0.1) },
+    addRow: { ...row, backgroundColor: tint(colors.statusSuccess, alpha.addLine) },
+    delRow: { ...row, backgroundColor: tint(colors.statusDanger, alpha.delLine) },
     inScope: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: tint(colors.foreground, IN_SCOPE_ALPHA.fill),
@@ -1049,8 +1050,8 @@ function createStyles(theme: PluginTheme) {
     splitCell: { ...row, flex: 1, flexBasis: 0 },
     splitDivider: { width: 1, backgroundColor: colors.border },
     number,
-    addMark: { backgroundColor: tint(colors.statusSuccess, 0.3) },
-    delMark: { backgroundColor: tint(colors.statusDanger, 0.25) },
+    addMark: { backgroundColor: tint(colors.statusSuccess, alpha.addMark) },
+    delMark: { backgroundColor: tint(colors.statusDanger, alpha.delMark) },
     addNumber: { ...number, color: colors.statusSuccess },
     delNumber: { ...number, color: colors.statusDanger },
     code: { ...code, flex: 1, flexShrink: 1, paddingHorizontal: 8, color: colors.foreground },
