@@ -96,6 +96,7 @@ export type LspMethod = (typeof LSP_METHODS)[number];
 export const lspRpc = defineRpc({
   name: "review.lsp",
   input: z.object({
+    projectId: z.string(),
     root: z.string(),
     tree: z.string().nullable(),
     path: z.string(),
@@ -111,7 +112,7 @@ export const lspRpc = defineRpc({
 
 export const leaseRpc = defineRpc({
   name: "review.lease",
-  input: z.object({ root: z.string(), leaseId: z.string(), action: z.enum(["hold", "release"]) }),
+  input: z.object({ projectId: z.string(), root: z.string(), leaseId: z.string(), action: z.enum(["hold", "release"]) }),
   output: z.object({}),
 });
 
@@ -149,14 +150,14 @@ export type Trust = z.infer<typeof trustSchema>;
 
 export const trustRpc = defineRpc({
   name: "review.trust",
-  input: z.object({ directory: z.string() }),
+  input: z.object({ projectId: z.string() }),
   output: z.object({ trust: trustSchema }),
 });
 
-/** Untrusting stops the workspace's language servers. */
+/** Untrusting stops the project's language servers. */
 export const setTrustRpc = defineRpc({
   name: "review.trust.set",
-  input: z.object({ directory: z.string(), trusted: z.boolean() }),
+  input: z.object({ projectId: z.string(), trusted: z.boolean() }),
   output: z.object({ trust: trustSchema }),
 });
 

@@ -41,11 +41,11 @@ pane goes away and the layout is always unified: the guided review shows every s
 scroll, each under its title and description, and the full diff shows just the files.
 
 In the web and desktop apps on a computer each file is a Monaco diff editor with collapsible
-unchanged lines. Once you trust the workspace, Ctrl/Cmd+click a symbol to peek at its definition,
+unchanged lines. Once you trust the project, Ctrl/Cmd+click a symbol to peek at its definition,
 and hover for its type, through a language server the daemon runs for the repository:
 `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer` or `clangd`, from the
 repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
-behind them. On phones and tablets, or when Monaco cannot load, the panel shows the diff with
+behind them. On phones and tablets, and while Monaco loads or when it cannot, the panel shows the diff with
 Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
 row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap.
 Changed images show before and after, as GitHub does; a text file whose diff `.gitattributes` turns
@@ -68,10 +68,11 @@ kinds and files that don't parse say so above the text diff.
 Files over 800 changed lines start collapsed. An expanded file without comments stops after 400
 changed lines, fading out under **Show full diff**.
 
-Language servers can run a workspace's code, so as in VS Code they stay off until you trust the
-workspace. A banner offers to, and **View → Hover and go to definition** switches it either way;
-syntax highlighting works regardless. Trust is decided per workspace and kept on the daemon, which
-refuses to start a language server for a repository no trusted workspace is in.
+Language servers can run a project's code, so as in VS Code they stay off until you trust the
+project. A banner offers to, and **View → Hover and go to definition** switches it either way;
+syntax highlighting works regardless. Trust is decided per Paseo project, covering all of its
+workspaces and worktrees, and kept on the daemon, which refuses to start a language server for a
+project that isn't trusted and stops a project's running servers once it is untrusted.
 
 Press **Generate guided review**. The diff goes to an agent on the model picked in the plugin's
 settings, and so to that model's provider. The agent runs in the reviewed workspace while it works,
@@ -112,5 +113,5 @@ newer version, and links to the changes. Nothing is installed until you press **
 Paseo's own plugin updater on the daemon host. The build runs in the background, and the plugin
 restarts on the new version once it's ready.
 
-Guided reviews, viewed marks, draft comments and workspace trust are stored on the daemon host under
+Guided reviews, viewed marks, draft comments and project trust are stored on the daemon host under
 `~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).

@@ -80,6 +80,8 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     sides.original.lines.length === 0 ? "modified" : sides.modified.lines.length === 0 ? "original" : null;
   const [container, setContainer] = useState<object | null>(null);
   const [editors, setEditors] = useState<Editors | null>(null);
+  const [settled, setSettled] = useState<Editors | null>(null);
+  const [nativeFirst, setNativeFirst] = useState(() => !reviewMonaco.loaded);
   const [height, setHeight] = useState(() => estimateHeight(block));
   const [failed, setFailed] = useState(false);
   const [cardHeights, setCardHeights] = useState<ReadonlyMap<string, number>>(new Map());
@@ -115,7 +117,11 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
             };
           }
           const inner = innerEditors(created);
-          const measure = () => setHeight(Math.max(...inner.map((editor) => editor.getContentHeight())));
+          const measure = () => {
+            // Monaco reports -1 until a model is attached.
+            const measured = Math.max(...inner.map((editor) => editor.getContentHeight()));
+            if (measured > 0) setHeight(measured);
+          };
           listeners.push(...inner.map((editor) => editor.onDidContentSizeChange(measure)));
           measure();
           zones.current = new CommentZones((key, top) =>
@@ -157,6 +163,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     let original: MonacoModel | null = null;
     let modified: MonacoModel | null = null;
     let decorations: DecorationsCollection | null = null;
+    let diffed: IDisposable | null = null;
     try {
       if (editors.modified != null) {
         modified = reviewMonaco.acquireModified(monaco, source, block.file.path, sides.modified.text, treeLines(sides.modified, sides.cut));
@@ -165,8 +172,10 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
         original = reviewMonaco.originalModel(monaco, block.file.oldPath ?? block.file.path, sides.original.text);
       }
       if (diff != null && original != null && modified != null) {
+        diffed = diff.onDidUpdateDiff(() => setSettled(editors));
         diff.setModel({ original, modified });
       } else {
+        setSettled(editors);
         const shown = single === "original" ? sides.original : sides.modified;
         const editor = editors.original ?? editors.modified;
         editor?.setModel(original ?? modified);
@@ -187,6 +196,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       setFailed(true);
     }
     return () => {
+      diffed?.dispose();
       // Monaco throws when a model attached to a live editor is disposed, and when a disposed editor is touched.
       if (!disposed.current.has(editors)) {
         decorations?.clear();
@@ -315,12 +325,25 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     zones.current?.sync(zoneSpecs.map(({ spec }) => spec));
   }, [editors, sides, zoneKey]);
 
+  const ready = editors != null && settled === editors;
+  const composing = comments.draft != null;
+  useEffect(() => {
+    // Swapping mid-comment would drop the fallback's composer and the text typed into it.
+    if (nativeFirst && ready && !composing) setNativeFirst(false);
+  }, [nativeFirst, ready, composing]);
+
   if (failed) return <>{fallback}</>;
+  const visible = ready && !nativeFirst;
   return (
     <View>
       <View>
-        <View ref={(node) => setContainer(node)} style={{ height }} dataSet={CODE_SURFACE} />
-        {placements.map(({ card }) => {
+        <View
+          ref={(node) => setContainer(node)}
+          style={{ height: visible ? height : nativeFirst ? 0 : estimateHeight(block), opacity: visible ? 1 : 0 }}
+          dataSet={CODE_SURFACE}
+        />
+        {nativeFirst ? fallback : null}
+        {(visible ? placements : []).map(({ card }) => {
           const key = cardKey(card);
           const top = cardTops.get(key);
           if (top == null) return null;
@@ -337,11 +360,11 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
             </View>
           );
         })}
-        {sides.cut && onShowFull != null ? (
+        {sides.cut && onShowFull != null && !nativeFirst ? (
           <ShowFullDiff theme={theme} lines={blockChanges(block)} onPress={onShowFull} />
         ) : null}
       </View>
-      <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />
+      {nativeFirst ? null : <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />}
     </View>
   );
 }

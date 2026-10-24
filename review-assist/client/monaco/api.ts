@@ -28,6 +28,9 @@ export interface MonacoUri {
 
 export interface MonacoModel {
   readonly uri: MonacoUri;
+  /** Internal to Monaco: absent from its typings. */
+  readonly tokenization: { forceTokenization(lineNumber: number): void };
+  getLineCount(): number;
   isAttachedToEditor(): boolean;
   dispose(): void;
 }

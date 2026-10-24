@@ -28,6 +28,7 @@ export interface ReviewBridge {
   file(input: { root: string; tree: string | null; path: string }): Promise<string>;
   /** Null when no language server handles the file. */
   lsp(input: {
+    projectId: string;
     root: string;
     tree: string | null;
     path: string;
@@ -51,10 +52,12 @@ interface SharedModel {
 }
 
 const MAX_REFERENCE_MODELS = 40;
+const MAX_EAGER_TOKENIZED_LINES = 1000;
 const ORIGINAL_SCHEME = "review-original";
 
 class ReviewMonaco {
   private loading: Promise<Monaco> | null = null;
+  private ready = false;
   private bridge: ReviewBridge | null = null;
   private onBridge: ((bridge: ReviewBridge) => void) | null = null;
   private readonly bridged = new Promise<ReviewBridge>((resolve) => {
@@ -66,7 +69,7 @@ class ReviewMonaco {
   private readonly treeModels = new Map<string, string>();
   private readonly targets = new Map<string, MonacoModel>();
   private readonly registrations: IDisposable[] = [];
-  private readonly trustedRoots = new Map<string, number>();
+  private readonly featureRoots = new Map<string, { projectId: string; holders: number }>();
   private themeKey = "";
   private originals = 0;
 
@@ -75,12 +78,17 @@ class ReviewMonaco {
     this.onBridge?.(bridge);
   }
 
+  get loaded(): boolean {
+    return this.ready;
+  }
+
   load(): Promise<Monaco> {
     this.loading ??= this.bridged
       .then((bridge) => injectMonaco((asset) => bridge.asset(asset)))
       .then(
         (monaco) => {
           this.install(monaco);
+          this.ready = true;
           return monaco;
         },
         (error: unknown) => {
@@ -92,12 +100,14 @@ class ReviewMonaco {
   }
 
   /** Hover, definitions and references for files in `root` until the returned function is called. */
-  enableLanguageFeatures(root: string): () => void {
-    this.trustedRoots.set(root, (this.trustedRoots.get(root) ?? 0) + 1);
+  enableLanguageFeatures(projectId: string, root: string): () => void {
+    const holders = (this.featureRoots.get(root)?.holders ?? 0) + 1;
+    this.featureRoots.set(root, { projectId, holders });
     return () => {
-      const left = (this.trustedRoots.get(root) ?? 1) - 1;
-      if (left > 0) this.trustedRoots.set(root, left);
-      else this.trustedRoots.delete(root);
+      const held = this.featureRoots.get(root);
+      if (held == null) return;
+      if (held.holders > 1) this.featureRoots.set(root, { ...held, holders: held.holders - 1 });
+      else this.featureRoots.delete(root);
     };
   }
 
@@ -134,7 +144,7 @@ class ReviewMonaco {
     const key = uri.toString();
     let shared = this.modified.get(key);
     if (shared == null) {
-      shared = { model: monaco.editor.createModel(text, undefined, uri), treeKeys: new Set(), users: 0 };
+      shared = { model: createModel(monaco, text, uri), treeKeys: new Set(), users: 0 };
       this.modified.set(key, shared);
       this.owners.set(key, { root: source.root, tree: source.tree, path, treeLines });
     }
@@ -162,12 +172,13 @@ class ReviewMonaco {
   /** The caller owns and disposes it. */
   originalModel(monaco: Monaco, path: string, text: string): MonacoModel {
     const uri = monaco.Uri.from({ scheme: ORIGINAL_SCHEME, path: `/${this.originals++}/${path}` });
-    return monaco.editor.createModel(text, undefined, uri);
+    return createModel(monaco, text, uri);
   }
 
   dispose(): void {
     for (const registration of this.registrations.splice(0)) registration.dispose();
     this.loading = null;
+    this.ready = false;
   }
 
   private install(monaco: Monaco): void {
@@ -222,10 +233,11 @@ class ReviewMonaco {
   }
 
   private async call(owner: ModelOwner, method: LspMethod, params: Record<string, unknown>): Promise<unknown> {
-    if (this.bridge == null || !this.trustedRoots.has(owner.root)) return null;
+    const features = this.featureRoots.get(owner.root);
+    if (this.bridge == null || features == null) return null;
     const { root, tree, path } = owner;
     try {
-      return await this.bridge.lsp({ root, tree, path, method, params });
+      return await this.bridge.lsp({ projectId: features.projectId, root, tree, path, method, params });
     } catch (error) {
       console.warn(`[review-assist] ${method} failed`, error);
       return null;
@@ -271,7 +283,7 @@ class ReviewMonaco {
     try {
       const text = await this.bridge.file({ root: owner.root, tree: null, path: uri.path });
       const key = uri.toString();
-      if (monaco.editor.getModel(uri) == null) this.targets.set(key, monaco.editor.createModel(text, undefined, uri));
+      if (monaco.editor.getModel(uri) == null) this.targets.set(key, createModel(monaco, text, uri));
       this.owners.set(key, { root: owner.root, tree: null, path: uri.path, treeLines: null });
       return uri;
     } catch (error) {
@@ -289,6 +301,13 @@ class ReviewMonaco {
       model.dispose();
     }
   }
+}
+
+function createModel(monaco: Monaco, text: string, uri: MonacoUri): MonacoModel {
+  const model = monaco.editor.createModel(text, undefined, uri);
+  // Else an editor paints its lines uncoloured, and colours them only frames later.
+  model.tokenization.forceTokenization(Math.min(model.getLineCount(), MAX_EAGER_TOKENIZED_LINES));
+  return model;
 }
 
 /** `range`, given in the tree's file, in the owner's model; null when the model lacks either end. */

@@ -38,8 +38,10 @@ export function ReviewPanel(props: PluginWorkspacePanelProps) {
 }
 
 function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanelProps) {
-  const workspace = useWorkspace(workspaceId, ({ directory, projectKind, diffStat }) => ({
+  const workspace = useWorkspace(workspaceId, ({ directory, projectId, projectDisplayName, projectKind, diffStat }) => ({
     directory,
+    projectId,
+    projectDisplayName,
     projectKind,
     additions: diffStat?.additions,
     deletions: diffStat?.deletions,
@@ -54,6 +56,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   const review = useReview({
     workspaceId,
     directory: workspace?.directory ?? null,
+    projectId: workspace?.projectId ?? null,
     mode,
     revision: `${workspace?.additions}:${workspace?.deletions}`,
   });
@@ -61,7 +64,11 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   const [trustPrompt, setTrustPrompt] = useState(false);
   const languageFeatures = isMonacoSupported();
   const trusted = review.trust === "trusted";
-  useCodeIntelligence(languageFeatures && trusted && live.status === "ready" ? live.source.root : null);
+  useCodeIntelligence(
+    languageFeatures && trusted && live.status === "ready" && workspace != null
+      ? { projectId: workspace.projectId, root: live.source.root }
+      : null,
+  );
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12 };
 
   if (workspace == null || workspace.projectKind !== "git") {
@@ -178,7 +185,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
             <MenuItem
               theme={theme}
               label="Hover and go to definition"
-              hint={trusted ? undefined : "Asks you to trust this workspace"}
+              hint={trusted ? undefined : "Asks you to trust this project"}
               checked={trusted}
               onPress={() => {
                 setMenu(null);
@@ -220,7 +227,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
       ) : null}
       <TrustDialog
         theme={theme}
-        directory={workspace.directory}
+        project={workspace.projectDisplayName}
         open={trustPrompt}
         onOpenChange={setTrustPrompt}
         onTrust={() => review.setTrust(true)}

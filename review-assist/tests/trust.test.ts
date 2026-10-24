@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import contribute from "../index.server";
-import { WorkspaceTrust } from "../server/trust";
-import { fileRpc, lspRpc, setTrustRpc, trustRpc } from "../shared/protocol";
+import { LanguageServers } from "../server/lsp/pool";
+import { ProjectTrust } from "../server/trust";
+import { fileRpc, leaseRpc, lspRpc, setTrustRpc, trustRpc } from "../shared/protocol";
 import { freshRepo, removeScratch, scratchDirectory, writeIn } from "./repo";
 
 const cacheHome = process.env.XDG_CACHE_HOME;
@@ -56,45 +57,75 @@ test("files are served only from a repository's top level", async () => {
   await dispose();
 });
 
-test("the daemon serves language features only while the workspace is trusted", async () => {
+test("the daemon serves language features only while the project is trusted", async () => {
   const repo = freshRepo();
+  const worktree = freshRepo();
   writeIn(repo, "notes.txt", "plain\n");
+  writeIn(worktree, "notes.txt", "plain\n");
   const { server, call } = fakeServer();
   const dispose = contribute(server);
-  const hover = () =>
-    call(lspRpc.name, { root: repo, tree: null, path: "notes.txt", method: "textDocument/hover", params: {} });
-  const refused = { status: "failed", error: "Language features are off until the workspace is trusted." };
+  const hover = (projectId: string, root: string) =>
+    call(lspRpc.name, { projectId, root, tree: null, path: "notes.txt", method: "textDocument/hover", params: {} });
+  const refused = { status: "failed", error: "Language features are off until the project is trusted." };
 
-  assert.deepEqual(await call(trustRpc.name, { directory: repo }), { trust: "undecided" });
-  assert.deepEqual(await hover(), refused);
-  assert.deepEqual(await call(setTrustRpc.name, { directory: repo, trusted: true }), { trust: "trusted" });
-  assert.deepEqual(await hover(), { status: "unsupported" });
-  assert.deepEqual(await call(setTrustRpc.name, { directory: repo, trusted: false }), { trust: "restricted" });
-  assert.deepEqual(await hover(), refused);
+  assert.deepEqual(await call(trustRpc.name, { projectId: "shelf" }), { trust: "undecided" });
+  assert.deepEqual(await hover("shelf", repo), refused);
+  assert.deepEqual(await call(setTrustRpc.name, { projectId: "shelf", trusted: true }), { trust: "trusted" });
+  assert.deepEqual(await hover("shelf", repo), { status: "unsupported" });
+  assert.deepEqual(await hover("shelf", worktree), { status: "unsupported" });
+  assert.deepEqual(await hover("other", repo), refused);
+  assert.deepEqual(await call(setTrustRpc.name, { projectId: "shelf", trusted: false }), { trust: "restricted" });
+  assert.deepEqual(await hover("shelf", worktree), refused);
   await dispose();
 });
 
-test("workspaces start undecided, and a root runs language servers while any trusted workspace has it", async () => {
-  const cache = scratchDirectory();
-  const trust = new WorkspaceTrust(cache);
-  assert.equal(await trust.read("/work/a"), "undecided");
-  assert.equal(await trust.allows("/repo"), false);
+test("untrusting a project stops the language servers of every root it was served at", async (t) => {
+  const [repo, worktree, other, stranger] = [freshRepo(), freshRepo(), freshRepo(), freshRepo()];
+  const stopped = t.mock.method(LanguageServers.prototype, "stop", async () => undefined);
+  const { server, call } = fakeServer();
+  const dispose = contribute(server);
+  const hover = (projectId: string, root: string) =>
+    call(lspRpc.name, { projectId, root, tree: null, path: "notes.txt", method: "textDocument/hover", params: {} });
+  const hold = (projectId: string, root: string) =>
+    call(leaseRpc.name, { projectId, root, leaseId: "lease", action: "hold" });
+  const untrust = (projectId: string) => call(setTrustRpc.name, { projectId, trusted: false });
+  const stops = () => stopped.mock.calls.map(({ arguments: [root] }) => root);
 
-  await Promise.all([trust.decide("/work/a", "/repo", true), trust.decide("/work/b", "/repo", false)]);
-  assert.equal(await trust.read("/work/a"), "trusted");
-  assert.equal(await trust.read("/work/b"), "restricted");
-  assert.equal(await trust.allows("/repo"), true);
-  assert.equal(await trust.allows("/elsewhere"), false);
+  await call(setTrustRpc.name, { projectId: "shelf", trusted: true });
+  await call(setTrustRpc.name, { projectId: "other", trusted: true });
+  await hover("shelf", repo);
+  await hold("shelf", worktree);
+  await hover("other", other);
+  await hold("stranger", stranger);
 
-  await trust.decide("/work/a", "/repo", false);
-  assert.equal(await trust.allows("/repo"), false);
+  await untrust("shelf");
+  assert.deepEqual(stops(), [repo, worktree]);
+  await untrust("stranger");
+  assert.deepEqual(stops(), [repo, worktree]);
+  await untrust("other");
+  assert.deepEqual(stops(), [repo, worktree, other]);
+  stopped.mock.restore();
+  await dispose();
+});
+
+test("projects start undecided, and the last decision for each stands", async () => {
+  const trust = new ProjectTrust(scratchDirectory());
+  assert.equal(await trust.read("shelf"), "undecided");
+  assert.equal(await trust.allows("shelf"), false);
+  assert.equal(await trust.read("constructor"), "undecided");
+
+  await Promise.all([trust.decide("shelf", false), trust.decide("shelf", true), trust.decide("other", false)]);
+  assert.equal(await trust.read("shelf"), "trusted");
+  assert.equal(await trust.read("other"), "restricted");
+  assert.equal(await trust.allows("shelf"), true);
+  assert.equal(await trust.allows("other"), false);
 });
 
 test("decisions persist privately", async () => {
   const cache = scratchDirectory();
-  await new WorkspaceTrust(cache).decide("/work/a", "/repo", true);
-  const reloaded = new WorkspaceTrust(cache);
-  assert.equal(await reloaded.read("/work/a"), "trusted");
-  assert.equal(await reloaded.allows("/repo"), true);
+  await new ProjectTrust(cache).decide("shelf", true);
+  const reloaded = new ProjectTrust(cache);
+  assert.equal(await reloaded.read("shelf"), "trusted");
+  assert.equal(await reloaded.allows("shelf"), true);
   assert.equal(statSync(join(cache, "trust.json")).mode & 0o777, 0o600);
 });

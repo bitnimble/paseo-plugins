@@ -9,6 +9,7 @@ import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { isDark, legibleSyntax } from "./palette";
 import type { FileSyntax } from "./syntax";
+import { isMonacoSupported } from "./web";
 
 const LEASE_REFRESH_MS = 30_000;
 
@@ -61,8 +62,8 @@ export function usePalette(theme: PluginTheme): SyntaxPalette | null {
   return useMemo(() => (colors == null ? null : legibleSyntax(theme, colors)), [theme, colors]);
 }
 
-/** Connects Monaco to the daemon; `trustedRoot` adds language features for its files. */
-export function useCodeIntelligence(trustedRoot: string | null): void {
+/** Connects Monaco to the daemon and starts loading it; `features` adds language features for its root's files. */
+export function useCodeIntelligence(features: { projectId: string; root: string } | null): void {
   const read = useRpc(fileRpc);
   const lsp = useRpc(lspRpc);
   const lease = useRpc(leaseRpc);
@@ -90,19 +91,22 @@ export function useCodeIntelligence(trustedRoot: string | null): void {
         return response.status === "ok" ? response.result : null;
       },
     });
+    if (isMonacoSupported()) reviewMonaco.load().catch(() => undefined);
   }, [read, lsp, monaco]);
 
+  const projectId = features?.projectId ?? null;
+  const root = features?.root ?? null;
   useEffect(() => {
-    if (trustedRoot == null) return;
-    const disable = reviewMonaco.enableLanguageFeatures(trustedRoot);
+    if (projectId == null || root == null) return;
+    const disable = reviewMonaco.enableLanguageFeatures(projectId, root);
     const leaseId = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    const hold = () => void lease({ root: trustedRoot, leaseId, action: "hold" }).catch(() => undefined);
+    const hold = () => void lease({ projectId, root, leaseId, action: "hold" }).catch(() => undefined);
     hold();
     const timer = setInterval(hold, LEASE_REFRESH_MS);
     return () => {
       disable();
       clearInterval(timer);
-      void lease({ root: trustedRoot, leaseId, action: "release" }).catch(() => undefined);
+      void lease({ projectId, root, leaseId, action: "release" }).catch(() => undefined);
     };
-  }, [trustedRoot, lease]);
+  }, [projectId, root, lease]);
 }

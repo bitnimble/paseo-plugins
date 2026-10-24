@@ -9,7 +9,7 @@ import { ReviewStates } from "./server/review-state";
 import { cacheDirectory } from "./server/slots";
 import { GuideStore } from "./server/store";
 import { TreeFiles } from "./server/trees";
-import { WorkspaceTrust } from "./server/trust";
+import { ProjectTrust } from "./server/trust";
 import { PluginUpdates } from "./server/updates";
 import { messageOf } from "./shared/errors";
 import {
@@ -46,7 +46,8 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const states = new ReviewStates(cacheDirectory());
   const trees = new TreeFiles();
   const languageServers = new LanguageServers(trees);
-  const trust = new WorkspaceTrust(cacheDirectory());
+  const trust = new ProjectTrust(cacheDirectory());
+  const projectOfServedRoot = new Map<string, string>();
   const mermaid = new MermaidRenderer();
   const updates = new PluginUpdates();
   // Roots arrive from clients; only real repository top levels are served.
@@ -58,7 +59,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     return true;
   };
   const unknownRoot = (root: string) => ({ status: "failed" as const, error: `Not a repository top level: ${root}` });
-  const untrusted = { status: "failed" as const, error: "Language features are off until the workspace is trusted." };
+  const untrusted = { status: "failed" as const, error: "Language features are off until the project is trusted." };
   const failed = (error: unknown) => ({ status: "failed" as const, error: messageOf(error) });
 
   server.handle(diffRpc, ({ directory, mode }) =>
@@ -107,20 +108,31 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     updates.install();
     return {};
   });
-  server.handle(trustRpc, async ({ directory }) => ({ trust: await trust.read(directory) }));
-  server.handle(setTrustRpc, async ({ directory, trusted }) => {
-    const root = await repoRoot(directory);
-    const decided = await trust.decide(directory, root, trusted);
-    if (!(await trust.allows(root))) await languageServers.stop(root);
+  server.handle(trustRpc, async ({ projectId }) => ({ trust: await trust.read(projectId) }));
+  server.handle(setTrustRpc, async ({ projectId, trusted }) => {
+    const decided = await trust.decide(projectId, trusted);
+    if (trusted) return { trust: decided };
+    for (const [root, owner] of projectOfServedRoot) {
+      if (owner !== projectId) continue;
+      projectOfServedRoot.delete(root);
+      await languageServers.stop(root);
+    }
     return { trust: decided };
   });
-  server.handle(lspRpc, async (input) => {
+  server.handle(lspRpc, async ({ projectId, ...input }) => {
     if (!(await admit(input.root))) return unknownRoot(input.root);
-    return (await trust.allows(input.root)) ? languageServers.request(input) : untrusted;
+    if (!(await trust.allows(projectId))) return untrusted;
+    projectOfServedRoot.set(input.root, projectId);
+    return languageServers.request(input);
   });
-  server.handle(leaseRpc, async ({ root, leaseId, action }) => {
-    if (action === "release") languageServers.release(root, leaseId);
-    else if ((await admit(root)) && (await trust.allows(root))) languageServers.hold(root, leaseId);
+  server.handle(leaseRpc, async ({ projectId, root, leaseId, action }) => {
+    if (action === "release") {
+      languageServers.release(root, leaseId);
+      return {};
+    }
+    if (!(await admit(root)) || !(await trust.allows(projectId))) return {};
+    projectOfServedRoot.set(root, projectId);
+    languageServers.hold(root, leaseId);
     return {};
   });
   return async () => {

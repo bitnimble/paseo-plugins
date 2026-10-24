@@ -88,10 +88,11 @@ export function commentStore(review: Review): CommentStore {
 export function useReview(input: {
   workspaceId: string;
   directory: string | null;
+  projectId: string | null;
   mode: DiffMode;
   revision: string;
 }): Review {
-  const { workspaceId, directory, mode, revision } = input;
+  const { workspaceId, directory, projectId, mode, revision } = input;
   const queryClient = useQueryClient();
   const toast = useToast();
   const readDiff = useRpc(diffRpc);
@@ -107,7 +108,7 @@ export function useReview(input: {
   const key = modeKey(mode);
   const guideKey = ["review-guide", directory, key];
   const stateKey = ["review-state", directory, key];
-  const trustKey = ["review-trust", directory];
+  const trustKey = ["review-trust", projectId];
 
   const diffQuery = useQuery({
     queryKey: ["review-diff", directory, key, revision],
@@ -124,11 +125,11 @@ export function useReview(input: {
   const stateQuery = useQuery({ queryKey: stateKey, queryFn: () => readState(target), enabled: directory != null });
   const trustQuery = useQuery({
     queryKey: trustKey,
-    queryFn: () => readTrust({ directory: target.directory }),
-    enabled: directory != null,
+    queryFn: () => readTrust({ projectId: projectId ?? "" }),
+    enabled: projectId != null,
   });
   const trustWrite = useMutation({
-    mutationFn: (trusted: boolean) => writeTrust({ directory: target.directory, trusted }),
+    mutationFn: (trusted: boolean) => writeTrust({ projectId: projectId ?? "", trusted }),
     onSuccess: (result) => queryClient.setQueryData(trustKey, result),
   });
 
