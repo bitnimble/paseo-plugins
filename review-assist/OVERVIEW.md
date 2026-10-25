@@ -65,6 +65,22 @@ buttons above it zoom, as does pinching on a phone, and once zoomed in, a drag p
 draws it in a worker thread, as an SVG for the web and a PNG for the phone apps; other diagram
 kinds and files that don't parse say so above the text diff.
 
+Markdown files (`.md`, `.markdown`) open as their text diff, with **Visual** in the file's header to
+read the change as the document renders. Headings, paragraphs, list items, quotes, rules, code
+blocks, raw HTML, front matter and tables are compared block by block: an edited block marks its
+removed words struck out in red beside the added ones in green, and a code block its changed lines,
+under an amber bar; whole added and removed blocks are tinted green and red, and a block that moved
+to another heading level or was mostly rewritten shows as both. A table lines up its columns by
+header, a renamed column with the one it replaces, and marks added and removed columns and rows,
+and the changed words in each cell. Renumbering a list leaves its items unchanged. Unchanged blocks
+fold away beyond two on each side of a change, unless a comment is among them, and the fold's row
+shows them all. A change only to how the source is written, such as `*` for `_`, says so above the
+text diff.
+
+Comments work in the visual view too: hover a block and press **+** to comment on the lines it is
+written on, shift-click another block's **+** to widen the comment to it, or on a touchscreen tap a
+block and long-press another. A removed block's comment is on the old file's lines.
+
 Files over 800 changed lines start collapsed. An expanded file without comments stops after 400
 changed lines, fading out under **Show full diff**.
 

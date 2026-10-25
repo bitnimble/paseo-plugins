@@ -36,8 +36,9 @@ import {
 } from "./comments";
 import { BinaryBody, LfsBody } from "./binary-view";
 import { ChangeStats, FileLabel, ShowFullDiff, Tabs } from "./controls";
-import { DEFAULT_DIAGRAM_VIEW, type DiagramView, MermaidBody, isMermaid } from "./mermaid-view";
 import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard";
+import { MarkdownBody } from "./markdown-view";
+import { MermaidBody } from "./mermaid-view";
 import { ScrollLock } from "./zoomable-image";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
@@ -45,6 +46,7 @@ import type { SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE, IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
 import { type ColoredText, type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
+import { type VisualView, defaultVisualView } from "./visual-view";
 import { isMonacoSupported } from "./web";
 
 const COLLAPSE_OVER_CHANGES = 800;
@@ -56,7 +58,7 @@ const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const EXPAND_STEP = 20;
 const MAX_REVEAL_ALL = 400;
 const NO_RANGES: readonly Range[] = [];
-const DIAGRAM_VIEWS = [
+const VISUAL_TABS = [
   { value: "visual", label: "Visual" },
   { value: "text", label: "Text" },
 ] as const;
@@ -166,10 +168,10 @@ export function DiffList(props: DiffListProps) {
   }, []);
 
   const showFull = useCallback((key: string) => setShownInFull((keys) => new Set(keys).add(key)), []);
-  const [diagramViews, setDiagramViews] = useState<ReadonlyMap<string, DiagramView>>(new Map());
+  const [visualViews, setVisualViews] = useState<ReadonlyMap<string, VisualView>>(new Map());
   const [scrollLocked, setScrollLocked] = useState(false);
-  const setDiagramView = useCallback(
-    (key: string, diagramView: DiagramView) => setDiagramViews((views) => new Map(views).set(key, diagramView)),
+  const setVisualView = useCallback(
+    (key: string, visualView: VisualView) => setVisualViews((views) => new Map(views).set(key, visualView)),
     [],
   );
 
@@ -220,8 +222,8 @@ export function DiffList(props: DiffListProps) {
     return byFile;
   }, [props.comments.comments]);
   const extraData = useMemo(
-    () => [folding, shownInFull, diagramViews, viewed, commentsByFile, draft, palette],
-    [folding, shownInFull, diagramViews, viewed, commentsByFile, draft, palette],
+    () => [folding, shownInFull, visualViews, viewed, commentsByFile, draft, palette],
+    [folding, shownInFull, visualViews, viewed, commentsByFile, draft, palette],
   );
 
   useEffect(() => {
@@ -289,8 +291,8 @@ export function DiffList(props: DiffListProps) {
                   // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
                   capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
                   onShowFull={showFull}
-                  diagram={isMermaid(item.file) ? (diagramViews.get(foldKey) ?? DEFAULT_DIAGRAM_VIEW) : null}
-                  onDiagram={setDiagramView}
+                  visual={visualViews.get(foldKey) ?? defaultVisualView(item.file)}
+                  onVisual={setVisualView}
                   viewed={isViewed}
                   comments={fileComments}
                   draft={fileDraft}
@@ -343,9 +345,9 @@ interface FileBlockViewProps {
   readonly collapsed: boolean;
   readonly capped: boolean;
   readonly onShowFull: (foldKey: string) => void;
-  /** Null for files that aren't diagrams. */
-  readonly diagram: DiagramView | null;
-  readonly onDiagram: (foldKey: string, diagram: DiagramView) => void;
+  /** Null for files without a rendered diff. */
+  readonly visual: VisualView | null;
+  readonly onVisual: (foldKey: string, visual: VisualView) => void;
   /** Null hides the checkbox. */
   readonly viewed: boolean | null;
   readonly comments: readonly DraftComment[];
@@ -367,8 +369,8 @@ const FileBlockView = memo(function FileBlockView({
   collapsed,
   capped,
   onShowFull,
-  diagram,
-  onDiagram,
+  visual,
+  onVisual,
   viewed,
   comments,
   draft,
@@ -384,7 +386,7 @@ const FileBlockView = memo(function FileBlockView({
   const moved = file.oldPath != null && file.oldPath !== file.path;
   const hasText = file.hunks.length > 0 && !file.binary && !file.lfs;
   const monaco = hasText && overflowHost != null && palette != null;
-  const text = useFileText(source, file, (hasText || diagram?.visual === true) && !collapsed);
+  const text = useFileText(source, file, (hasText || visual?.visual === true) && !collapsed);
   // New hunks laid over the file's previous text misplace lines: keep the last pair that agrees.
   const lastMatched = useRef<{ block: FileBlock; text: string } | null>(null);
   if (text.status === "ready" && !text.previous) lastMatched.current = { block, text: text.text };
@@ -439,13 +441,13 @@ const FileBlockView = memo(function FileBlockView({
             <Text style={styles.viewedLabel}>{comments.length}</Text>
           </View>
         )}
-        {diagram == null ? null : (
+        {visual == null ? null : (
           <Tabs
             theme={theme}
             compact
-            value={diagram.visual ? "visual" : "text"}
-            options={DIAGRAM_VIEWS}
-            onChange={(value) => onDiagram(foldKey, { ...diagram, visual: value === "visual" })}
+            value={visual.visual ? "visual" : "text"}
+            options={VISUAL_TABS}
+            onChange={(value) => onVisual(foldKey, { ...visual, visual: value === "visual" })}
           />
         )}
         <ChangeStats theme={theme} file={file} {...blockCounts(block)} />
@@ -481,14 +483,26 @@ const FileBlockView = memo(function FileBlockView({
   );
 
   function body(): ReactNode {
-    if (diagram?.visual !== true) return textBody();
+    if (visual?.visual !== true) return textBody();
+    if (visual.kind === "markdown") {
+      return (
+        <MarkdownBody
+          block={block}
+          text={text}
+          theme={theme}
+          comments={fileComments}
+          noteStyle={styles.note}
+          fallback={textBody()}
+        />
+      );
+    }
     return (
       <MermaidBody
         block={block}
         text={text}
         theme={theme}
-        distance={diagram.distance}
-        onDistance={(distance) => onDiagram(foldKey, { ...diagram, distance })}
+        distance={visual.distance}
+        onDistance={(distance) => onVisual(foldKey, { ...visual, distance })}
         noteStyle={styles.note}
         fallback={textBody()}
       />

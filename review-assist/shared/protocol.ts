@@ -264,6 +264,73 @@ export const mermaidRpc = defineRpc({
   output: mermaidOutcomeSchema,
 });
 
+const MAX_MARKDOWN_CHARS = 500_000;
+
+const markdownChangeSchema = z.enum(["added", "removed"]);
+
+const markdownRunSchema = z.object({
+  text: z.string(),
+  strong: z.boolean(),
+  em: z.boolean(),
+  code: z.boolean(),
+  strike: z.boolean(),
+  /** A link's target, or an image's source when `image`; `text` is then the image's alt text. */
+  href: z.string().nullable(),
+  image: z.boolean(),
+  change: markdownChangeSchema.nullable(),
+});
+export type MarkdownRun = z.infer<typeof markdownRunSchema>;
+
+const markdownBlockSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("heading"), depth: z.number().int(), runs: z.array(markdownRunSchema) }),
+  z.object({ kind: z.literal("text"), runs: z.array(markdownRunSchema) }),
+  z.object({
+    kind: z.literal("code"),
+    lines: z.array(z.object({ text: z.string(), change: markdownChangeSchema.nullable() })),
+  }),
+  z.object({
+    kind: z.literal("table"),
+    columns: z.array(
+      z.object({ align: z.enum(["left", "center", "right"]).nullable(), change: markdownChangeSchema.nullable() }),
+    ),
+    rows: z.array(
+      z.object({
+        header: z.boolean(),
+        cells: z.array(z.array(markdownRunSchema)),
+        change: markdownChangeSchema.nullable(),
+      }),
+    ),
+  }),
+  z.object({ kind: z.literal("rule") }),
+]);
+export type MarkdownBlock = z.infer<typeof markdownBlockSchema>;
+
+const markdownEntrySchema = z.object({
+  /** `changed` blocks mark their removed and added parts, none when only a list marker or quote depth changed. */
+  change: z.enum(["same", "added", "removed", "changed"]),
+  /** How many quotes the block is inside. */
+  quote: z.number().int(),
+  /** `marker` is on an item's first block, and null on the blocks after it in the same item. */
+  list: z.object({ depth: z.number().int(), marker: z.string().nullable() }).nullable(),
+  block: markdownBlockSchema,
+  /** Lines of `before` (old) or `after` (new), from 0, the block is written on; null when not found. */
+  lines: z.object({ side: z.enum(["old", "new"]), start: z.number().int(), end: z.number().int() }).nullable(),
+});
+export type MarkdownEntry = z.infer<typeof markdownEntrySchema>;
+
+const markdownOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ready"), entries: z.array(markdownEntrySchema) }),
+  z.object({ status: z.literal("unavailable"), reason: z.string() }),
+]);
+export type MarkdownOutcome = z.infer<typeof markdownOutcomeSchema>;
+
+/** The document as `after` renders it, with what `before` had in its place. */
+export const markdownRpc = defineRpc({
+  name: "review.markdown",
+  input: z.object({ before: z.string().max(MAX_MARKDOWN_CHARS), after: z.string().max(MAX_MARKDOWN_CHARS) }),
+  output: markdownOutcomeSchema,
+});
+
 export const MONACO_ASSETS = ["script", "css", "worker"] as const;
 export type MonacoAsset = (typeof MONACO_ASSETS)[number];
 

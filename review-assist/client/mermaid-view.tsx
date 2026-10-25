@@ -3,12 +3,10 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useMemo } from "react";
 import { Platform, Text, type TextStyle, View } from "react-native";
-import type { DiffFile } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 import type { FileBlock } from "../shared/guide";
 import { hashText } from "../shared/hash";
 import {
-  MERMAID_DEFAULT_DISTANCE,
   MERMAID_MAX_DISTANCE,
   type MermaidOutcome,
   type MermaidPalette,
@@ -19,17 +17,6 @@ import { IconButton } from "./controls";
 import { hexColor, isDark } from "./palette";
 import type { FileText } from "./use-code";
 import { ZoomableImage } from "./zoomable-image";
-
-export interface DiagramView {
-  readonly visual: boolean;
-  readonly distance: number;
-}
-
-export const DEFAULT_DIAGRAM_VIEW: DiagramView = { visual: true, distance: MERMAID_DEFAULT_DISTANCE };
-
-export function isMermaid(file: DiffFile): boolean {
-  return !file.binary && file.hunks.length > 0 && /\.(?:mmd|mermaid)$/i.test(file.path);
-}
 
 export function MermaidBody({
   block,

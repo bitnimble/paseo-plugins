@@ -3,6 +3,7 @@ import { submitReview, workspaceAgents } from "./server/agents";
 import { listBranches, previewBlob, readDiff, repoRoot } from "./server/git";
 import { highlightSides, syntaxPalette } from "./server/highlight";
 import { LanguageServers } from "./server/lsp/pool";
+import { markdownDiff } from "./server/markdown";
 import { MermaidRenderer } from "./server/mermaid/renderer";
 import { monacoChunk } from "./server/monaco-assets";
 import { ReviewStates } from "./server/review-state";
@@ -24,6 +25,7 @@ import {
   highlightRpc,
   leaseRpc,
   lspRpc,
+  markdownRpc,
   mermaidRpc,
   monacoRpc,
   paletteRpc,
@@ -103,6 +105,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
   server.handle(monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
   server.handle(mermaidRpc, (input) => mermaid.draw(input));
+  server.handle(markdownRpc, ({ before, after }) => markdownDiff(before, after));
   server.handle(updateStatusRpc, () => updates.status());
   server.handle(updateRpc, () => {
     updates.install();

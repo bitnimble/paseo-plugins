@@ -7,8 +7,10 @@ export interface SplitRow {
 
 const MAX_ALIGNED_BLOCK = 400;
 const MAX_WORD_PAIRS = 200 * 200;
-const MIN_KEPT_SHARE = 0.4;
-const TOKEN = /\w+|\s+|[^\w\s]/g;
+const MAX_LCS_CELLS = 4_000_000;
+/** Below this share of their text in common, two versions read as a rewrite rather than an edit. */
+export const MIN_KEPT_SHARE = 0.4;
+export const WORD_TOKEN = /\w+|\s+|[^\w\s]/gu;
 
 /**
  * Shows lines that changed only in whitespace as context, the way `git diff -w` would. Display
@@ -92,8 +94,8 @@ export interface Span {
 }
 
 function changedSpans(before: string, after: string): { old: Span[]; new: Span[] } | null {
-  const left = before.match(TOKEN) ?? [];
-  const right = after.match(TOKEN) ?? [];
+  const left = before.match(WORD_TOKEN) ?? [];
+  const right = after.match(WORD_TOKEN) ?? [];
   if (left.length * right.length > MAX_WORD_PAIRS) return null;
   const pairs = commonPairs(left, right);
   const kept = pairs.reduce((sum, [i]) => sum + left[i].length, 0);
@@ -128,21 +130,62 @@ function alignIgnoringWhitespace(removed: readonly DiffLine[], added: readonly D
   return commonPairs(left, right);
 }
 
-/** Index pairs of a longest common subsequence of `left` and `right`. */
-function commonPairs(left: readonly string[], right: readonly string[]): [number, number][] {
-  const lengths = Array.from({ length: left.length + 1 }, () => new Array<number>(right.length + 1).fill(0));
-  for (let i = left.length - 1; i >= 0; i--) {
-    for (let j = right.length - 1; j >= 0; j--) {
-      lengths[i][j] =
-        left[i] === right[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+/**
+ * Index pairs of a longest common subsequence of `left` and `right`, items matching by `same`. Too
+ * long a stretch between their common ends pairs only the items level with each other instead.
+ */
+export function commonPairs<T>(
+  left: readonly T[],
+  right: readonly T[],
+  same: (a: T, b: T) => boolean = (a, b) => a === b,
+): [number, number][] {
+  let head = 0;
+  while (head < left.length && head < right.length && same(left[head], right[head])) head++;
+  let tail = 0;
+  while (
+    tail < left.length - head &&
+    tail < right.length - head &&
+    same(left[left.length - 1 - tail], right[right.length - 1 - tail])
+  ) {
+    tail++;
+  }
+  const leftEnd = left.length - tail;
+  const rightEnd = right.length - tail;
+  const pairs: [number, number][] = [];
+  for (let k = 0; k < head; k++) pairs.push([k, k]);
+  if ((leftEnd - head) * (rightEnd - head) > MAX_LCS_CELLS) {
+    for (let k = head; k < Math.min(leftEnd, rightEnd); k++) if (same(left[k], right[k])) pairs.push([k, k]);
+  } else {
+    pairs.push(...middlePairs(left, right, same, head, leftEnd, rightEnd));
+  }
+  for (let k = tail; k > 0; k--) pairs.push([left.length - k, right.length - k]);
+  return pairs;
+}
+
+function middlePairs<T>(
+  left: readonly T[],
+  right: readonly T[],
+  same: (a: T, b: T) => boolean,
+  start: number,
+  leftEnd: number,
+  rightEnd: number,
+): [number, number][] {
+  const rows = leftEnd - start;
+  const columns = rightEnd - start;
+  const lengths = Array.from({ length: rows + 1 }, () => new Array<number>(columns + 1).fill(0));
+  for (let i = rows - 1; i >= 0; i--) {
+    for (let j = columns - 1; j >= 0; j--) {
+      lengths[i][j] = same(left[start + i], right[start + j])
+        ? lengths[i + 1][j + 1] + 1
+        : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
     }
   }
   const pairs: [number, number][] = [];
   let i = 0;
   let j = 0;
-  while (i < left.length && j < right.length) {
-    if (left[i] === right[j]) {
-      pairs.push([i++, j++]);
+  while (i < rows && j < columns) {
+    if (same(left[start + i], right[start + j])) {
+      pairs.push([start + i++, start + j++]);
     } else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
       i++;
     } else {
