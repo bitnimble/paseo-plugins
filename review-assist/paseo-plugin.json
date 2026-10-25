@@ -11,6 +11,6 @@
     ["npm", "run", "build-client"]
   ],
   "requirements": {
-    "paseo": ">=0.11.4"
+    "paseo": ">=0.13.0"
   }
 }

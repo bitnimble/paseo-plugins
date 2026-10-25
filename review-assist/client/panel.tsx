@@ -1,7 +1,9 @@
-import { type PluginWorkspacePanelProps, useSettings, useWorkspace } from "@getpaseo/plugin/client";
+import { type PluginWorkspacePanelProps, useSettings, useTabState, useWorkspace } from "@getpaseo/plugin/client";
+import { Loading } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { DEFAULT_BRANCH_MODE, type DiffMode } from "../shared/protocol";
+import { z } from "zod";
+import { DEFAULT_BRANCH_MODE, type DiffMode, diffModeSchema, modeKey } from "../shared/protocol";
 import { type ViewOptions, reviewSettings } from "../shared/settings";
 import { IconButton, Tabs } from "./controls";
 import type { FoldCommand } from "./diff-list";
@@ -18,13 +20,21 @@ import { useCodeIntelligence } from "./use-code";
 import { commentStore, useReview } from "./use-review";
 import { isMonacoSupported } from "./web";
 
-type Tab = "guided" | "full";
 type Menu = "mode" | "view";
 
-const TABS = [
+const placeSchema = z.object({
+  mode: diffModeSchema,
+  tab: z.enum(["guided", "full"]),
+  section: z.number().int().nonnegative(),
+});
+type Place = z.infer<typeof placeSchema>;
+type Tab = Place["tab"];
+const START: Place = { mode: DEFAULT_BRANCH_MODE, tab: "guided", section: 0 };
+
+const TABS: readonly { value: Tab; label: string }[] = [
   { value: "guided", label: "Guided" },
   { value: "full", label: "Full diff" },
-] as const;
+];
 
 const VIEW_KEYS = ["layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth"] as const;
 const DEFAULT_SETTINGS = reviewSettings.schema.parse({});
@@ -37,7 +47,7 @@ export function ReviewPanel(props: PluginWorkspacePanelProps) {
   );
 }
 
-function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanelProps) {
+function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: PluginWorkspacePanelProps) {
   const workspace = useWorkspace(workspaceId, ({ directory, projectId, projectDisplayName, projectKind, diffStat }) => ({
     directory,
     projectId,
@@ -46,8 +56,8 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
     additions: diffStat?.additions,
     deletions: diffStat?.deletions,
   }));
-  const [mode, setMode] = useState<DiffMode>(DEFAULT_BRANCH_MODE);
-  const [tab, setTab] = useState<Tab>("guided");
+  const [place, setPlace] = useTabState(panelTab, placeSchema, START);
+  const { mode, tab, section } = place;
   const [menu, setMenu] = useState<Menu | null>(null);
   const [fold, setFold] = useState<FoldCommand | null>(null);
   const [fits, setFits] = useState(true);
@@ -71,12 +81,11 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   );
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12 };
 
-  if (workspace == null || workspace.projectKind !== "git") {
+  if (workspace == null) return <Loading />;
+  if (workspace.projectKind !== "git") {
     return (
       <View style={{ flex: 1, padding: 24, backgroundColor: theme.colors.surface0 }}>
-        <Text style={{ color: theme.colors.foregroundMuted }}>
-          {workspace == null ? "Waiting for the workspace…" : "Guided review needs a git repository."}
-        </Text>
+        <Text style={{ color: theme.colors.foregroundMuted }}>Guided review needs a git repository.</Text>
       </View>
     );
   }
@@ -92,7 +101,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   const comments = commentStore(review);
   const resizePane = (paneWidth: number) => setView({ paneWidth });
   const pickMode = (next: DiffMode) => {
-    setMode(next);
+    if (modeKey(next) !== modeKey(mode)) setPlace({ ...place, mode: next, section: 0 });
     setMenu(null);
   };
   const foldAll = (collapsed: boolean) => {
@@ -121,7 +130,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
           backgroundColor: theme.colors.surface0,
         }}
       >
-        <Tabs<Tab> theme={theme} value={tab} options={TABS} onChange={setTab} />
+        <Tabs<Tab> theme={theme} value={tab} options={TABS} onChange={(next) => setPlace({ ...place, tab: next })} />
         <ModeMenu
           theme={theme}
           directory={workspace.directory}
@@ -245,6 +254,8 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
           guide={review.guide}
           guideError={review.guideError}
           generate={review.generate}
+          section={section}
+          onSection={(next) => setPlace({ ...place, section: next })}
           viewedMarks={review.state.viewed}
           setViewed={review.setViewed}
           comments={comments}
@@ -262,7 +273,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
           comments={comments}
         />
       ) : (
-        <Text style={{ ...muted, padding: 16 }}>Reading the diff…</Text>
+        <Loading />
       )}
     </View>
   );

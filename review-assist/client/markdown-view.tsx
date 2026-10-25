@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
 import {

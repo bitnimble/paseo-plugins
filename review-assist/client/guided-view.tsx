@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, Loading } from "@getpaseo/plugin/client/ui";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
@@ -25,6 +25,8 @@ interface GuidedViewProps {
   readonly guide: GuideState | null;
   readonly guideError: string | null;
   readonly generate: () => void;
+  readonly section: number;
+  readonly onSection: (index: number) => void;
   readonly viewedMarks: readonly ViewedMark[];
   readonly setViewed: (mark: ViewedMark, viewed: boolean) => void;
   readonly comments: CommentStore;
@@ -41,14 +43,14 @@ export function GuidedView({
   guide,
   guideError,
   generate,
+  section,
+  onSection,
   viewedMarks,
   setViewed,
   comments,
   openAgent,
 }: GuidedViewProps) {
-  if (guide == null) {
-    return <Message theme={theme}>{guideError ?? "Loading the guided review…"}</Message>;
-  }
+  if (guide == null) return guideError == null ? <Loading /> : <Message theme={theme}>{guideError}</Message>;
   const { job, record, diff } = guide;
   const agentButton = (agentId: string | null) =>
     agentId == null || openAgent == null ? null : (
@@ -133,6 +135,8 @@ export function GuidedView({
         fold={fold}
         record={record}
         diff={diff}
+        selected={section}
+        onSelect={onSection}
         viewedMarks={viewedMarks}
         setViewed={setViewed}
         comments={comments}
@@ -149,6 +153,8 @@ function Sections({
   fold,
   record,
   diff,
+  selected,
+  onSelect,
   viewedMarks,
   setViewed,
   comments,
@@ -160,11 +166,12 @@ function Sections({
   fold: FoldCommand | null;
   record: GuideRecord;
   diff: ParsedDiff;
+  selected: number;
+  onSelect(index: number): void;
   viewedMarks: readonly ViewedMark[];
   setViewed(mark: ViewedMark, viewed: boolean): void;
   comments: CommentStore;
 }) {
-  const [selected, setSelected] = useState(0);
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
@@ -209,7 +216,7 @@ function Sections({
   const commentCounts = countByPath(comments.comments);
 
   const go = (next: number, blockIndex?: number) => {
-    setSelected(next);
+    onSelect(next);
     setTarget(blockIndex == null ? null : { blockIndex, nonce: Date.now() });
   };
 

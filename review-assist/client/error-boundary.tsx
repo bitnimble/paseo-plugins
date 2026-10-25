@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { detailsOf } from "../shared/errors";

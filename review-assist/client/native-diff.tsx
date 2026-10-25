@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";

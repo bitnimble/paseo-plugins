@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { type CommentTarget, commentLine, commentTarget, rangeDescription, rangeLabel, suggestible } from "../shared/comments";

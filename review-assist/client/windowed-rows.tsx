@@ -1,4 +1,4 @@
-import { ScrollView } from "@getpaseo/plugin/client/react-native";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
 import {
   type ReactNode,
   type RefObject,

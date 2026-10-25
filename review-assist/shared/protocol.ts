@@ -5,7 +5,7 @@ import { type FileFacts, NO_FACTS } from "./diff";
 import type { Failed } from "./errors";
 import { guideSectionSchema } from "./guide";
 
-const diffModeSchema = z.discriminatedUnion("kind", [
+export const diffModeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("uncommitted") }),
   /** `branch` null is the repository's default branch. */
   z.object({ kind: z.literal("branch"), branch: z.string().nullable() }),

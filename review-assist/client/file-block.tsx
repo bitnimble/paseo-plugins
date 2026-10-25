@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";

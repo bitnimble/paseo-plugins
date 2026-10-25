@@ -26,7 +26,8 @@ the Explorer. Pick which diff to review:
 - Any other local or remote branch, picked from a filterable list, compares the working tree with
   that branch's merge-base.
 
-Guides, viewed marks and comments are kept separately for each choice.
+Guides, viewed marks and comments are kept separately for each choice. Each Review tab reopens on
+the diff it was showing, Guided or Full diff, and its section.
 
 **View** switches between unified and split layouts, wraps long lines, hides lines that only
 changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.

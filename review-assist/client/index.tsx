@@ -8,7 +8,6 @@ export default function contribute(client: PluginClientContext): () => void {
     id: "review",
     title: "Review",
     icon: "ListChecks",
-    context: "workspace",
     locations: ["workspace", "explorer"],
     Component: ReviewPanel,
   });
