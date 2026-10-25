@@ -1,13 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { FlatList } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type FlatList as NativeFlatList, View, useWindowDimensions } from "react-native";
-import { type FileBlock, blockChanges } from "../shared/guide";
+import { View } from "react-native";
+import { type FileBlock, blockChanges, blockLines } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
 import type { ViewOptions } from "../shared/settings";
 import { CAPPED_CHANGES, MORE_CHANGES_STEP } from "../shared/sides";
 import type { CommentDraft } from "./comments";
-import { createStyles } from "./diff-styles";
+import { CODE_LINE_HEIGHT, FILE_HEADER_HEIGHT, createStyles } from "./diff-styles";
 import { type CommentActions, FileBlockView } from "./file-block";
 import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard";
 import { ScrollLock } from "./zoomable-image";
@@ -17,9 +16,9 @@ import { SettledWidth } from "./settled-width";
 import { usePalette } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
 import { isMonacoSupported } from "./web";
+import { ScrollList, type ScrollListHandle, type WindowedRow } from "./windowed-rows";
 
 const COLLAPSE_OVER_CHANGES = 800;
-const MAX_SCROLL_ATTEMPTS = 60;
 const NO_COMMENTS: readonly DraftComment[] = [];
 
 export interface ScrollTarget {
@@ -69,9 +68,7 @@ interface Folding {
 
 export function DiffList(props: DiffListProps) {
   const { blocks, source, theme, view, target, fold, viewed, header, footer } = props;
-  const list = useRef<NativeFlatList<FileBlock>>(null);
-  const attempts = useRef(0);
-  const retry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const list = useRef<ScrollListHandle>(null);
   const [folding, setFolding] = useState<Folding>(() => ({ base: fold?.collapsed ?? null, overrides: new Map() }));
   const [changeLimits, setChangeLimits] = useState<ReadonlyMap<string, number>>(new Map());
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -83,14 +80,10 @@ export function DiffList(props: DiffListProps) {
   const latest = useRef({ props, draft, bottomInset });
   latest.current = { props, draft, bottomInset };
   const frame = useRef<View>(null);
-  const screen = useWindowDimensions();
-  const [frameHeight, setFrameHeight] = useState<number | null>(null);
-  const editorHeight = frameHeight ?? screen.height;
-  const scrollY = useRef(0);
   const pendingScroll = useRef<number | null>(null);
   const scrollToPending = useCallback(() => {
     if (pendingScroll.current == null) return;
-    list.current?.scrollToOffset({ offset: pendingScroll.current, animated: true });
+    list.current?.scrollTo(pendingScroll.current, true);
     pendingScroll.current = null;
   }, []);
   const centreAboveKeyboard = useCallback(
@@ -101,7 +94,7 @@ export function DiffList(props: DiffListProps) {
         const [shown, target] = await Promise.all([spanOf(frame.current), spanOf(node)]);
         if (!live) return;
         const { scroll, bottomInset: inset } = centring(shown, target, visible);
-        pendingScroll.current = Math.max(0, scrollY.current + scroll);
+        pendingScroll.current = Math.max(0, (list.current?.offset() ?? 0) + scroll);
         // The effect on the inset scrolls once the space is laid out.
         if (inset === latest.current.bottomInset) scrollToPending();
         else setKeyboardInset(inset);
@@ -176,101 +169,70 @@ export function DiffList(props: DiffListProps) {
     }
     return byFile;
   }, [props.comments.comments]);
-  const extraData = useMemo(
-    () => [folding, changeLimits, visualViews, viewed, commentsByFile, draft, palette, editorHeight],
-    [folding, changeLimits, visualViews, viewed, commentsByFile, draft, palette, editorHeight],
-  );
-
   useEffect(() => {
     if (fold != null) setFolding({ base: fold.collapsed, overrides: new Map() });
   }, [fold]);
 
   const scrolledTo = useRef<number | null>(null);
   useEffect(() => {
-    if (target == null || target.blockIndex >= blocks.length || scrolledTo.current === target.nonce) return;
+    const block = target == null ? undefined : blocks[target.blockIndex];
+    if (target == null || block == null || scrolledTo.current === target.nonce) return;
     scrolledTo.current = target.nonce;
-    attempts.current = 0;
-    list.current?.scrollToIndex({ index: target.blockIndex, animated: false });
-    return () => clearTimeout(retry.current);
-  }, [target, blocks.length]);
+    const top = list.current?.topOf(headingKey(target.blockIndex)) ?? list.current?.topOf(blockKey(block, target.blockIndex));
+    if (top != null) list.current?.scrollTo(top, false);
+  }, [target, blocks]);
+
+  const rows: WindowedRow[] = [
+    ...(header == null ? [] : [fixedRow("header", header)]),
+    ...blocks.flatMap((item, index): WindowedRow[] => {
+      const isViewed = viewed?.isViewed(item) ?? null;
+      // By place as well as path: the same file can be a block in several sections.
+      const foldKey = `${index}:${item.file.path}`;
+      const collapsed = folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
+      const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
+      const fileDraft =
+        draft != null && draftPath(draft) === item.file.path && (draft.kind === "edit" || draft.blockKey === foldKey)
+          ? draft
+          : null;
+      const blockRow: WindowedRow = {
+        key: blockKey(item, index),
+        pinned: fileDraft != null,
+        estimate: FILE_HEADER_HEIGHT + (collapsed ? 0 : blockLines(item) * CODE_LINE_HEIGHT),
+        render: () => (
+          <FileBlockView
+            block={item}
+            foldKey={foldKey}
+            source={source}
+            overflowHost={overflowHost}
+            collapsed={collapsed}
+            changeLimit={changeLimits.get(foldKey) ?? CAPPED_CHANGES}
+            onShowMore={showMore}
+            visual={visualViews.get(foldKey) ?? defaultVisualView(item.file)}
+            onVisual={setVisualView}
+            viewed={isViewed}
+            comments={fileComments}
+            draft={fileDraft}
+            actions={actions}
+            onCollapse={setCollapsed}
+            onViewed={markViewed}
+            view={view}
+            styles={styles}
+            theme={theme}
+            palette={palette}
+          />
+        ),
+      };
+      const heading = props.heading?.(index);
+      return heading == null ? [blockRow] : [fixedRow(headingKey(index), heading), blockRow];
+    }),
+    ...(footer == null ? [] : [fixedRow("footer", footer)]),
+  ];
 
   const body = (
-    <View ref={frame} style={styles.list} onLayout={(event) => setFrameHeight(event.nativeEvent.layout.height)}>
+    <View ref={frame} style={styles.list}>
       <ScrollLock.Provider value={setScrollLocked}>
         <CentreAboveKeyboard.Provider value={centreAboveKeyboard}>
-          <FlatList
-            ref={list}
-            style={styles.list}
-            scrollEnabled={!scrollLocked}
-            // Else the first tap with the keyboard up only dismisses it, eating a long-press to extend a comment.
-            keyboardShouldPersistTaps="handled"
-            onScroll={(event) => {
-              scrollY.current = event.nativeEvent.contentOffset.y;
-            }}
-            scrollEventThrottle={16}
-            contentContainerStyle={{ paddingBottom: bottomInset }}
-            data={blocks}
-            extraData={extraData}
-            keyExtractor={(block, index) => `${block.file.index}:${index}`}
-            initialNumToRender={4}
-            windowSize={7}
-            ListHeaderComponent={header}
-            ListFooterComponent={footer}
-            onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
-              // Rows vary in height, so the target has no offset until rendered: bring the end of the
-              // furthest measured row into view, which renders the rows after it, and aim again.
-              list.current?.scrollToIndex({ index: highestMeasuredFrameIndex, viewPosition: 1, animated: false });
-              clearTimeout(retry.current);
-              if (attempts.current++ < MAX_SCROLL_ATTEMPTS) {
-                retry.current = setTimeout(() => list.current?.scrollToIndex({ index, animated: false }), 50);
-              }
-            }}
-            renderItem={({ item, index }) => {
-              const isViewed = viewed?.isViewed(item) ?? null;
-              // By place as well as path: the same file can be a block in several sections.
-              const foldKey = `${index}:${item.file.path}`;
-              const collapsed =
-                folding.overrides.get(foldKey) ?? folding.base ?? (isViewed === true || collapsedByDefault(item));
-              const fileComments = commentsByFile.get(item.file.path) ?? NO_COMMENTS;
-              const fileDraft =
-                draft != null && draftPath(draft) === item.file.path && (draft.kind === "edit" || draft.blockKey === foldKey)
-                  ? draft
-                  : null;
-              const block = (
-                <FileBlockView
-                  block={item}
-                  foldKey={foldKey}
-                  source={source}
-                  overflowHost={overflowHost}
-                  collapsed={collapsed}
-                  changeLimit={changeLimits.get(foldKey) ?? CAPPED_CHANGES}
-                  onShowMore={showMore}
-                  maxHeight={editorHeight}
-                  visual={visualViews.get(foldKey) ?? defaultVisualView(item.file)}
-                  onVisual={setVisualView}
-                  viewed={isViewed}
-                  comments={fileComments}
-                  draft={fileDraft}
-                  actions={actions}
-                  onCollapse={setCollapsed}
-                  onViewed={markViewed}
-                  view={view}
-                  styles={styles}
-                  theme={theme}
-                  palette={palette}
-                />
-              );
-              const heading = props.heading?.(index);
-              return heading == null ? (
-                block
-              ) : (
-                <>
-                  {heading}
-                  {block}
-                </>
-              );
-            }}
-          />
+          <ScrollList handle={list} rows={rows} style={styles.list} scrollEnabled={!scrollLocked} bottomInset={bottomInset} />
         </CentreAboveKeyboard.Provider>
       </ScrollLock.Provider>
       {isMonacoSupported() ? (
@@ -279,6 +241,18 @@ export function DiffList(props: DiffListProps) {
     </View>
   );
   return <SettledWidth>{body}</SettledWidth>;
+}
+
+function fixedRow(key: string, content: ReactNode): WindowedRow {
+  return { key, pinned: false, estimate: 0, render: () => content };
+}
+
+function blockKey(block: FileBlock, index: number): string {
+  return `${block.file.index}:${index}`;
+}
+
+function headingKey(index: number): string {
+  return `heading:${index}`;
 }
 
 function draftPath(draft: CommentDraft): string {

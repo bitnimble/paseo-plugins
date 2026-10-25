@@ -81,8 +81,9 @@ Comments work in the visual view too: hover a block and press **+** to comment o
 written on, shift-click another block's **+** to widen the comment to it, or on a touchscreen tap a
 block and long-press another. A removed block's comment is on the old file's lines.
 
-Files over 800 changed lines start collapsed. Each file's diff is at most as tall as the review
-pane and scrolls inside itself. It stops after 400 changed lines, or at its last comment, with a
+Files over 800 changed lines start collapsed. The review scrolls as one document with one
+scrollbar; in Monaco a long file scrolls up until it fills the pane, holds there while its lines
+scroll past, then moves on. Each file stops after 400 changed lines, or at its last comment, with a
 button beneath that shows 2,000 more at a time.
 
 Language servers can run a project's code, so as in VS Code they stay off until you trust the

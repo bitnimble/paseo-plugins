@@ -96,6 +96,9 @@ export interface CodeEditor {
   setModel(model: MonacoModel | null): void;
   getContentHeight(): number;
   getScrollTop(): number;
+  setScrollTop(scrollTop: number): void;
+  getScrollLeft(): number;
+  setScrollLeft(scrollLeft: number): void;
   getSelection(): MonacoRange | null;
   onDidContentSizeChange(listener: () => void): IDisposable;
   onDidScrollChange(listener: (event: { scrollTop: number }) => void): IDisposable;

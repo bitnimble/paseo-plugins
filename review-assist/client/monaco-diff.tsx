@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, View } from "react-native";
 import { detailsOf } from "../shared/errors";
 import { type FileBlock, blockLines } from "../shared/guide";
@@ -23,13 +23,15 @@ import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE, MONOSPACE } from "./palette";
-import { asEditorContainer, asOverflowHost, signFirstDeletedRows } from "./web";
+import { asEditorContainer, asOverflowHost, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
+import { ContentTop, useViewport } from "./windowed-rows";
 
 const LINE_HEIGHT = 18;
 const SCROLLBAR_SIZE = 10;
 const SPLIT_MIN_WIDTH = 560;
 const CARD_HEIGHT_ESTIMATE = 96;
 const CARDS_CLIP = { reviewcards: "" } as const;
+const STICKY_FRAME = { reviewsticky: "" } as const;
 // Above the diff editor's own zones on the same line, such as inline removed lines.
 const ZONE_ORDINAL = 10_000;
 const COMMENT_GLYPH = "review-comment-glyph";
@@ -66,13 +68,13 @@ interface MonacoFileDiffProps {
   readonly changeLimit: number;
   readonly onShowMore: () => void;
   readonly hidden: number;
-  readonly maxHeight: number;
   readonly fallback: ReactNode;
 }
 
 export function MonacoFileDiff(props: MonacoFileDiffProps) {
-  const { block, text, view, theme, palette, overflowHost, comments, changeLimit, onShowMore, hidden, maxHeight, fallback } =
-    props;
+  const { block, text, view, theme, palette, overflowHost, comments, changeLimit, onShowMore, hidden, fallback } = props;
+  const viewport = useViewport();
+  const slotTop = useContext(ContentTop);
   const { file } = block;
   const sides = useStableSides(
     useMemo(
@@ -242,6 +244,42 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     return () => listener.dispose();
   }, [editors, scrollY]);
 
+  const ready = editors != null && settled === editors;
+  const visible = ready && !nativeFirst;
+  const frameHeight = visible ? Math.min(height, viewport.height) : nativeFirst ? 0 : Math.min(estimateHeight(block), viewport.height);
+  useEffect(() => {
+    const editor = editors?.modified ?? editors?.original;
+    if (!visible || editors == null || editor == null || disposed.current.has(editors)) return;
+    // Whole pixels, as Monaco stores them: a fraction never matches `followed`, so each scroll would yank the list.
+    const inView = (contentHeight: number): number =>
+      Math.floor(Math.min(Math.max(viewport.offset() - slotTop, 0), Math.max(0, contentHeight - frameHeight)));
+    let followed = editor.getScrollTop();
+    const follow = (): void => {
+      const next = inView(height);
+      if (next === followed) return;
+      followed = next;
+      editor.setScrollTop(next);
+    };
+    const lead = editor.onDidScrollChange(({ scrollTop }) => {
+      if (scrollTop === followed) return;
+      followed = scrollTop;
+      // Revealing a line moves the list there; Monaco settling within new content bounds does not.
+      if (scrollTop !== inView(editor.getContentHeight())) viewport.scrollTo(slotTop + scrollTop);
+    });
+    follow();
+    const unsubscribe = viewport.subscribe(follow);
+    return () => {
+      unsubscribe();
+      lead.dispose();
+    };
+  }, [editors, visible, viewport, slotTop, height, frameHeight]);
+
+  useEffect(() => {
+    const editor = editors?.modified ?? editors?.original;
+    if (editors == null || editor == null || container == null || disposed.current.has(editors)) return;
+    return scrollSidewaysOnWheel(container, editor);
+  }, [editors, container]);
+
   useEffect(() => {
     if (editors?.diff == null || disposed.current.has(editors)) return;
     const { diff, original, modified } = editors;
@@ -338,7 +376,6 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     zones.current?.sync(zoneSpecs.map(({ spec }) => spec));
   }, [editors, sides, zoneKey]);
 
-  const ready = editors != null && settled === editors;
   const composing = comments.draft != null;
   useEffect(() => {
     // Swapping mid-comment would drop the fallback's composer and the text typed into it.
@@ -346,52 +383,43 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
   }, [nativeFirst, ready, composing]);
 
   if (failed) return <>{fallback}</>;
-  const visible = ready && !nativeFirst;
-  const shownHeight = Math.min(height, maxHeight);
   return (
     <View>
-      <View>
-        <View
-          ref={(node) => setContainer(node)}
-          style={{
-            height: visible ? shownHeight : nativeFirst ? 0 : Math.min(estimateHeight(block), maxHeight),
-            opacity: visible ? 1 : 0,
-          }}
-          dataSet={CODE_SURFACE}
-        />
-        {nativeFirst ? fallback : null}
-        {visible ? (
-          <View
-            pointerEvents="box-none"
-            style={{ position: "absolute", top: 0, left: 0, right: SCROLLBAR_SIZE, height: shownHeight, overflow: "hidden" }}
-            // Clipped, not hidden: a composer's autofocus would scroll a hidden-overflow box, shifting every card.
-            dataSet={CARDS_CLIP}
-          >
-            <Animated.View pointerEvents="box-none" style={{ transform: [{ translateY: scrollY }] }}>
-              {placements.map(({ card }) => {
-                const key = cardKey(card);
-                const top = cardTops.get(key);
-                if (top == null) return null;
-                return (
-                  <View
-                    key={key}
-                    style={{ position: "absolute", top, left: 0, right: 0 }}
-                    onLayout={(event) => {
-                      const measured = Math.ceil(event.nativeEvent.layout.height);
-                      setCardHeights((heights) => (heights.get(key) === measured ? heights : new Map(heights).set(key, measured)));
-                    }}
-                  >
-                    <CommentSlot theme={theme} file={file} card={card} comments={comments} />
-                  </View>
-                );
-              })}
-            </Animated.View>
-          </View>
-        ) : null}
-        {sides.cut && !nativeFirst ? (
-          <ShowMoreChanges theme={theme} hidden={hidden} onPress={onShowMore} />
-        ) : null}
+      {nativeFirst ? fallback : null}
+      <View style={{ height: visible ? height : frameHeight }}>
+        <View style={{ height: frameHeight }} dataSet={STICKY_FRAME}>
+          <View ref={(node) => setContainer(node)} style={{ height: frameHeight, opacity: visible ? 1 : 0 }} dataSet={CODE_SURFACE} />
+          {visible ? (
+            <View
+              pointerEvents="box-none"
+              style={{ position: "absolute", top: 0, left: 0, right: 0, height: frameHeight, overflow: "hidden" }}
+              // Clipped, not hidden: a composer's autofocus would scroll a hidden-overflow box, shifting every card.
+              dataSet={CARDS_CLIP}
+            >
+              <Animated.View pointerEvents="box-none" style={{ transform: [{ translateY: scrollY }] }}>
+                {placements.map(({ card }) => {
+                  const key = cardKey(card);
+                  const top = cardTops.get(key);
+                  if (top == null) return null;
+                  return (
+                    <View
+                      key={key}
+                      style={{ position: "absolute", top, left: 0, right: 0 }}
+                      onLayout={(event) => {
+                        const measured = Math.ceil(event.nativeEvent.layout.height);
+                        setCardHeights((heights) => (heights.get(key) === measured ? heights : new Map(heights).set(key, measured)));
+                      }}
+                    >
+                      <CommentSlot theme={theme} file={file} card={card} comments={comments} />
+                    </View>
+                  );
+                })}
+              </Animated.View>
+            </View>
+          ) : null}
+        </View>
       </View>
+      {sides.cut && !nativeFirst ? <ShowMoreChanges theme={theme} hidden={hidden} onPress={onShowMore} /> : null}
       {nativeFirst ? null : <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />}
     </View>
   );
@@ -502,8 +530,10 @@ function editorOptions(view: ViewOptions): Readonly<Record<string, unknown>> {
     stickyScroll: { enabled: false },
     renderLineHighlight: "none",
     scrollbar: {
-      alwaysConsumeMouseWheel: false,
-      verticalScrollbarSize: SCROLLBAR_SIZE,
+      // The list scrolls, and the editor follows it.
+      vertical: "hidden",
+      verticalScrollbarSize: 0,
+      handleMouseWheel: false,
       horizontalScrollbarSize: SCROLLBAR_SIZE,
       ignoreHorizontalScrollbarInContentHeight: true,
       useShadows: false,

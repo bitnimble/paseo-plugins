@@ -4,6 +4,7 @@ import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
 
 export const CODE_FONT_SIZE = 12;
 export const CODE_LINE_HEIGHT = 18;
+export const FILE_HEADER_HEIGHT = 30;
 
 export type DiffStyles = ReturnType<typeof createStyles>;
 
@@ -27,7 +28,7 @@ export function createStyles(theme: PluginTheme) {
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
-      minHeight: 30,
+      minHeight: FILE_HEADER_HEIGHT,
       paddingLeft: 12,
       paddingRight: 8,
       borderBottomWidth: 1,

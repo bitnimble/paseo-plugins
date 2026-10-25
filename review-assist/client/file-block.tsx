@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { type ReactNode, memo, useCallback, useMemo, useRef } from "react";
+import { type ReactNode, memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
@@ -11,7 +11,7 @@ import { type SideLine, blockHunks, changesThrough, shownChangeCount } from "../
 import type { CommentDraft, FileComments, Suggestion } from "./comments";
 import { BinaryBody, LfsBody } from "./binary-view";
 import { ChangeStats, FileLabel, Tabs } from "./controls";
-import type { DiffStyles } from "./diff-styles";
+import { type DiffStyles, FILE_HEADER_HEIGHT } from "./diff-styles";
 import { MarkdownBody } from "./markdown-view";
 import { MermaidBody } from "./mermaid-view";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
@@ -20,6 +20,7 @@ import type { SyntaxPalette } from "./monaco/theme";
 import { NativeBody } from "./native-diff";
 import { useFileText } from "./use-code";
 import type { VisualView } from "./visual-view";
+import { ContentTop } from "./windowed-rows";
 
 const VISUAL_TABS = [
   { value: "visual", label: "Visual" },
@@ -42,7 +43,6 @@ interface FileBlockViewProps {
   readonly collapsed: boolean;
   readonly changeLimit: number;
   readonly onShowMore: (foldKey: string, shown: number) => void;
-  readonly maxHeight: number;
   /** Null for files without a rendered diff. */
   readonly visual: VisualView | null;
   readonly onVisual: (foldKey: string, visual: VisualView) => void;
@@ -67,7 +67,6 @@ export const FileBlockView = memo(function FileBlockView({
   collapsed,
   changeLimit,
   onShowMore,
-  maxHeight,
   visual,
   onVisual,
   viewed,
@@ -82,6 +81,8 @@ export const FileBlockView = memo(function FileBlockView({
   palette,
 }: FileBlockViewProps) {
   const { file } = block;
+  const top = useContext(ContentTop);
+  const [lead, setLead] = useState(FILE_HEADER_HEIGHT);
   const moved = file.oldPath != null && file.oldPath !== file.path;
   const hasText = file.hunks.length > 0 && !file.binary && !file.lfs;
   const monaco = hasText && overflowHost != null && palette != null;
@@ -133,63 +134,66 @@ export const FileBlockView = memo(function FileBlockView({
       changeLimit={limit}
       onShowMore={showMore}
       hidden={hidden}
-      maxHeight={maxHeight}
       text={matched?.block === block ? matched.text : null}
     />
   );
 
   return (
     <View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
-        accessibilityState={{ expanded: !collapsed }}
-        style={({ pressed }) => [styles.fileHeader, pressed && styles.fileHeaderPressed]}
-        onPress={() => onCollapse(foldKey, !collapsed)}
-      >
-        <FileLabel theme={theme} path={file.path} detail={moved ? `from ${file.oldPath}` : undefined} />
-        {comments.length === 0 ? null : (
-          <View style={styles.commentCount} accessibilityLabel={`${comments.length} unsent ${comments.length === 1 ? "comment" : "comments"}`}>
-            <Icon name="MessageSquare" size={12} color={theme.colors.foregroundMuted} />
-            <Text style={styles.viewedLabel}>{comments.length}</Text>
-          </View>
-        )}
-        {visual == null ? null : (
-          <Tabs
-            theme={theme}
-            compact
-            value={visual.visual ? "visual" : "text"}
-            options={VISUAL_TABS}
-            onChange={(value) => onVisual(foldKey, { ...visual, visual: value === "visual" })}
-          />
-        )}
-        <ChangeStats theme={theme} file={file} {...blockCounts(block)} />
-        {viewed == null ? null : (
-          <Pressable
-            accessibilityRole="checkbox"
-            accessibilityLabel={`Viewed ${file.path}`}
-            aria-checked={viewed}
-            hitSlop={6}
-            onPress={() => onViewed(block, foldKey, !viewed)}
-            style={({ pressed }) => [styles.viewedToggle, pressed && styles.fileHeaderPressed]}
-          >
-            <Icon
-              name={viewed ? "SquareCheck" : "Square"}
-              size={14}
-              color={viewed ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
+      <View onLayout={(event) => setLead(event.nativeEvent.layout.height)}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
+          accessibilityState={{ expanded: !collapsed }}
+          style={({ pressed }) => [styles.fileHeader, pressed && styles.fileHeaderPressed]}
+          onPress={() => onCollapse(foldKey, !collapsed)}
+        >
+          <FileLabel theme={theme} path={file.path} detail={moved ? `from ${file.oldPath}` : undefined} />
+          {comments.length === 0 ? null : (
+            <View style={styles.commentCount} accessibilityLabel={`${comments.length} unsent ${comments.length === 1 ? "comment" : "comments"}`}>
+              <Icon name="MessageSquare" size={12} color={theme.colors.foregroundMuted} />
+              <Text style={styles.viewedLabel}>{comments.length}</Text>
+            </View>
+          )}
+          {visual == null ? null : (
+            <Tabs
+              theme={theme}
+              compact
+              value={visual.visual ? "visual" : "text"}
+              options={VISUAL_TABS}
+              onChange={(value) => onVisual(foldKey, { ...visual, visual: value === "visual" })}
             />
-            <Text style={styles.viewedLabel}>Viewed</Text>
-          </Pressable>
-        )}
-      </Pressable>
+          )}
+          <ChangeStats theme={theme} file={file} {...blockCounts(block)} />
+          {viewed == null ? null : (
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel={`Viewed ${file.path}`}
+              aria-checked={viewed}
+              hitSlop={6}
+              onPress={() => onViewed(block, foldKey, !viewed)}
+              style={({ pressed }) => [styles.viewedToggle, pressed && styles.fileHeaderPressed]}
+            >
+              <Icon
+                name={viewed ? "SquareCheck" : "Square"}
+                size={14}
+                color={viewed ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
+              />
+              <Text style={styles.viewedLabel}>Viewed</Text>
+            </Pressable>
+          )}
+        </Pressable>
+        {collapsed
+          ? null
+          : fileNotes(file).map((note) => (
+              <Text key={note} style={styles.note}>
+                {note}
+              </Text>
+            ))}
+      </View>
       {collapsed ? null : (
         <View style={styles.body}>
-          {fileNotes(file).map((note) => (
-            <Text key={note} style={styles.note}>
-              {note}
-            </Text>
-          ))}
-          {body()}
+          <ContentTop.Provider value={top + lead}>{body()}</ContentTop.Provider>
         </View>
       )}
     </View>
@@ -241,7 +245,6 @@ export const FileBlockView = memo(function FileBlockView({
         changeLimit={limit}
         onShowMore={showMore}
         hidden={hidden}
-        maxHeight={maxHeight}
         fallback={nativeBody}
       />
     );

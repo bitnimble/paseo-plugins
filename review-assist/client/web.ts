@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import type { MonacoAsset } from "../shared/protocol";
-import type { EditorContainer, Monaco } from "./monaco/api";
+import type { CodeEditor, EditorContainer, Monaco } from "./monaco/api";
 import { MONOSPACE } from "./palette";
 
 // This plugin typechecks without the DOM library.
@@ -47,6 +47,18 @@ declare class MutationObserver {
   disconnect(): void;
 }
 
+interface WheelLike {
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly shiftKey: boolean;
+  preventDefault(): void;
+}
+
+interface WheelTarget {
+  addEventListener(type: "wheel", listener: (event: WheelLike) => void, options: { passive: boolean }): void;
+  removeEventListener(type: "wheel", listener: (event: WheelLike) => void): void;
+}
+
 declare class Blob {
   constructor(parts: readonly string[], options: { type: string });
 }
@@ -71,6 +83,7 @@ const EXTRA_CSS = `
 .review-scope-last { border-bottom-width: 1px; }
 .review-resizing, .review-resizing * { user-select: none !important; cursor: col-resize !important; }
 [data-reviewcards] { overflow: clip !important; }
+[data-reviewsticky] { position: sticky !important; top: 0; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
 `;
@@ -117,6 +130,24 @@ export function signFirstDeletedRows(container: object): () => void {
   observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
   update();
   return () => observer.disconnect();
+}
+
+/** Scrolls an editor that ignores the wheel sideways, for a horizontal or shift-held wheel over `container`; returns a stop. */
+export function scrollSidewaysOnWheel(container: object, editor: CodeEditor): () => void {
+  // Not the editor's own node: Monaco replaces that on every model swap.
+  const node = container as unknown as WheelTarget;
+  const onWheel = (event: WheelLike): void => {
+    const sideways = event.shiftKey
+      ? event.deltaX || event.deltaY
+      : Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX
+        : 0;
+    if (sideways === 0) return;
+    editor.setScrollLeft(editor.getScrollLeft() + sideways);
+    event.preventDefault();
+  };
+  node.addEventListener("wheel", onWheel, { passive: false });
+  return () => node.removeEventListener("wheel", onWheel);
 }
 
 /** Monaco styles overflow widgets through an ancestor carrying its root class. */

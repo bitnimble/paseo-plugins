@@ -54,7 +54,6 @@ export function NativeBody({
   changeLimit,
   onShowMore,
   hidden,
-  maxHeight,
   text,
 }: {
   block: FileBlock;
@@ -67,7 +66,6 @@ export function NativeBody({
   changeLimit: number;
   onShowMore(): void;
   hidden: number;
-  maxHeight: number;
   /** The file as the diff leaves it, once known, to show the lines around the changes. */
   text: string | null;
 }) {
@@ -114,6 +112,7 @@ export function NativeBody({
           {
             key: `gap:${from}`,
             pinned: false,
+            estimate: CODE_LINE_HEIGHT,
             render: () => (
               <GapRow
                 from={from}
@@ -135,6 +134,7 @@ export function NativeBody({
             {
               key: `header:${i}`,
               pinned: false,
+              estimate: CODE_LINE_HEIGHT,
               render: () => <MutedRow text={hunk.header} gutter={gutter} styles={styles} />,
             },
           ]
@@ -144,14 +144,7 @@ export function NativeBody({
     ...(whole == null || shown.cut || last == null ? [] : gap(last.end, whole.length)),
   ];
   const windowed = (
-    <WindowedRows
-      key={`${sideways}:${view.hideWhitespace}`}
-      rows={body}
-      estimate={CODE_LINE_HEIGHT}
-      maxHeight={maxHeight}
-      sideways={sideways}
-      minWidth={visibleWidth ?? 0}
-    />
+    <WindowedRows key={`${sideways}:${view.hideWhitespace}`} rows={body} sideways={sideways} minWidth={visibleWidth ?? 0} />
   );
   return (
     <>
@@ -282,6 +275,7 @@ function hunkRows(
       return {
         key: `${lineKey(row.left)}|${lineKey(row.right)}`,
         pinned: holdsDraft(indexes),
+        estimate: CODE_LINE_HEIGHT,
         render: () => (
           <>
             <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
@@ -297,6 +291,7 @@ function hunkRows(
     return lines.map((line, i) => ({
       key: lineKey(line),
       pinned: holdsDraft([i]),
+      estimate: CODE_LINE_HEIGHT,
       render: () => (
         <>
           <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
