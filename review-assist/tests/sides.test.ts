@@ -140,7 +140,7 @@ test("a section's sides hold earlier sections' changes and leave out later ones"
 
 test("a section's hunks show only its own changes, numbered as in the real files", () => {
   const shown = (block: FileBlock) =>
-    blockHunks(block, false).map(({ header, lines }) => [header, lines.map((line) => `${line.kind}:${line.text}`)]);
+    blockHunks(block, false).hunks.map(({ header, lines }) => [header, lines.map((line) => `${line.kind}:${line.text}`)]);
   assert.deepEqual(shown(first), [["@@ -1,4 +1,3 @@", ["context:a", "del:b", "add:B", "context:c", "context:d"]]]);
   assert.deepEqual(shown(second), [["@@ -1,3 +1,4 @@", ["context:a", "context:B", "context:c", "del:d", "add:D"]]]);
 });
@@ -152,7 +152,7 @@ test("hiding whitespace shows a whitespace-only edit as unchanged on both sides"
   const [block] = fullBlocks(diff);
   const sides = blockSides(block, "x\ny\n", true);
   assert.equal(sides.original.text, sides.modified.text);
-  assert.deepEqual(blockHunks(block, true), []);
+  assert.deepEqual(blockHunks(block, true).hunks, []);
   assert.notEqual(blockSides(block, "x\ny\n", false).original.text, "x\ny\n");
 });
 
@@ -182,6 +182,97 @@ test("a change limit inside a rewritten block keeps old and new lines alike", ()
   );
 });
 
+const MULTI_HUNK_TEXT = Array.from({ length: 30 }, (_, i) =>
+  [2, 7, 20, 21, 22].includes(i + 1) ? `L${i + 1}\n` : `l${i + 1}\n`,
+).join("");
+const [multiHunk] = fullBlocks(
+  parseDiff(
+    [
+      "diff --git a/m.txt b/m.txt",
+      "--- a/m.txt",
+      "+++ b/m.txt",
+      "@@ -1,10 +1,10 @@",
+      " l1",
+      "-l2",
+      "+L2",
+      " l3",
+      " l4",
+      " l5",
+      " l6",
+      "-l7",
+      "+L7",
+      " l8",
+      " l9",
+      " l10",
+      "@@ -17,9 +17,9 @@ l16",
+      " l17",
+      " l18",
+      " l19",
+      "-l20",
+      "-l21",
+      "-l22",
+      "+L20",
+      "+L21",
+      "+L22",
+      " l23",
+      " l24",
+      " l25",
+      "",
+    ].join("\n"),
+  ),
+);
+const CUT_HUNKS: [number, boolean, [string, string[]][]][] = [
+  [1, true, [["@@ -1,2 +1,1 @@", ["context:l1", "del:l2"]]]],
+  [2, true, [["@@ -1,6 +1,6 @@", ["context:l1", "del:l2", "add:L2", "context:l3", "context:l4", "context:l5", "context:l6"]]]],
+  [
+    4,
+    true,
+    [
+      [
+        "@@ -1,10 +1,10 @@",
+        ["context:l1", "del:l2", "add:L2", "context:l3", "context:l4", "context:l5", "context:l6", "del:l7", "add:L7", "context:l8", "context:l9", "context:l10"],
+      ],
+    ],
+  ],
+  [
+    7,
+    true,
+    [
+      [
+        "@@ -1,10 +1,10 @@",
+        ["context:l1", "del:l2", "add:L2", "context:l3", "context:l4", "context:l5", "context:l6", "del:l7", "add:L7", "context:l8", "context:l9", "context:l10"],
+      ],
+      ["@@ -17,5 +17,4 @@", ["context:l17", "context:l18", "context:l19", "del:l20", "del:l21", "add:L20"]],
+    ],
+  ],
+];
+const shownHunks = (hunks: readonly { header: string; lines: readonly DiffLine[] }[]) =>
+  hunks.map(({ header, lines }): [string, string[]] => [header, lines.map((line) => `${line.kind}:${line.text}`)]);
+
+test("a change limit ends a block's hunks where its uncut hunks reach the cut", () => {
+  for (const [limit, cut, hunks] of CUT_HUNKS) {
+    const shown = blockHunks(multiHunk, false, limit);
+    assert.deepEqual([shown.cut, shownHunks(shown.hunks)], [cut, hunks], `limit ${limit}`);
+  }
+  const uncut = blockHunks(multiHunk, false, 10);
+  assert.deepEqual([uncut.cut, uncut.hunks.map(({ header }) => header)], [false, ["@@ -1,10 +1,10 @@", "@@ -17,9 +17,9 @@"]]);
+});
+
+test("a change limit ends the whole file's hunks where its uncut hunks reach the cut, as the sides end", () => {
+  const whole = wholeFileLines(multiHunk, MULTI_HUNK_TEXT, false).lines;
+  for (const [limit, cut, hunks] of CUT_HUNKS) {
+    const taken = takeChanges(whole, limit);
+    assert.equal(taken.cut, cut, `limit ${limit}`);
+    assert.deepEqual(shownHunks(hunksOf(taken.lines, 3, [], taken.cut)), hunks, `limit ${limit}`);
+    assert.deepEqual(taken.lines, wholeFileLines(multiHunk, MULTI_HUNK_TEXT, false, limit).lines, `limit ${limit}`);
+  }
+  const taken = takeChanges(whole, 7);
+  assert.deepEqual(
+    hunksOf(taken.lines, 3, [[10, 18]], taken.cut).map(({ start, end }) => [start, end]),
+    [[0, 24]],
+  );
+});
+
 test("huge files are rebuilt and shown without overflowing the stack", () => {
   const count = 200_000;
   const old = numbered(count);
@@ -191,7 +282,7 @@ test("huge files are rebuilt and shown without overflowing the stack", () => {
 
   const removed = old.trimEnd().split("\n").map((line) => `-${line}`);
   const removal = parseDiff([...header, "+++ /dev/null", `@@ -1,${count} +0,0 @@`, ...removed, ""].join("\n"));
-  assert.equal(blockHunks(fullBlocks(removal)[0], true)[0].lines.length, count);
+  assert.equal(blockHunks(fullBlocks(removal)[0], true).hunks[0].lines.length, count);
   assert.equal(wholeFileLines(fullBlocks(removal)[0], "", false).lines.length, count);
 });
 

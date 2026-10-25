@@ -27,8 +27,8 @@ export interface ShownHunk {
   readonly header: string;
   readonly lines: readonly DiffLine[];
   /** Where `lines` sit in the list they were cut from. */
-  readonly start?: number;
-  readonly end?: number;
+  readonly start: number;
+  readonly end: number;
 }
 
 interface Line extends SideLine {
@@ -64,10 +64,10 @@ export function wholeFileLines(
   changeLimit = Infinity,
 ): { lines: DiffLine[]; cut: boolean } {
   const unchanged = splitLines(newText);
+  const { hunks, cut } = takeBlockChanges(block, ignoreWhitespace, changeLimit);
   const lines: DiffLine[] = [];
   let next = 0;
   let oldShift = 0;
-  let changes = 0;
   const keepUnchanged = (end: number) => {
     for (; next < end && next < unchanged.length; next++) {
       const { text, eol } = unchanged[next];
@@ -75,27 +75,28 @@ export function wholeFileLines(
       lines.push({ kind: "context", text, oldNumber: next + 1 + oldShift, newNumber: next + 1, noNewlineMarker });
     }
   };
-  for (const hunk of block.file.hunks) {
+  for (const { hunk, lines: taken } of hunks) {
     const oldCount = hunk.lines.filter((line) => line.kind !== "add").length;
     const newCount = hunk.lines.filter((line) => line.kind !== "del").length;
     // An empty new side's start names the line before the hunk.
     keepUnchanged(newCount === 0 ? hunk.newStart : hunk.newStart - 1);
-    const taken = takeChanges(shownLines(block, hunk, ignoreWhitespace), changeLimit - changes);
-    for (const line of taken.lines) lines.push(line);
-    if (taken.cut) return { lines, cut: true };
-    changes += taken.changes;
+    for (const line of taken) lines.push(line);
     next += newCount;
     oldShift += oldCount - newCount;
   }
-  keepUnchanged(unchanged.length);
-  return { lines, cut: false };
+  if (!cut) keepUnchanged(unchanged.length);
+  return { lines, cut };
 }
 
-/** Lines within `context` of a change, or of a range in `shown`, cut into hunks. */
+/**
+ * Lines within `context` of a change, or of a range in `shown`, cut into hunks. `cut` says `lines`
+ * end where `takeChanges` cut them: the hunks are the uncut lines' hunks, up to there.
+ */
 export function hunksOf(
   lines: readonly DiffLine[],
   context: number,
   shown: readonly (readonly [number, number])[] = [],
+  cut = false,
 ): ShownHunk[] {
   const ranges: [number, number][] = [];
   const add = (start: number, end: number) => ranges.push([Math.max(0, start), Math.min(lines.length, end)]);
@@ -103,6 +104,7 @@ export function hunksOf(
     if (isChange(line)) add(i - context, i + context + 1);
   });
   for (const [start, end] of shown) add(start, end);
+  if (cut) add(lines.length - context, lines.length);
   ranges.sort((a, b) => a[0] - b[0]);
   const merged: [number, number][] = [];
   for (const [start, end] of ranges) {
@@ -110,10 +112,12 @@ export function hunksOf(
     if (last != null && start <= last[1]) last[1] = Math.max(last[1], end);
     else if (start < end) merged.push([start, end]);
   }
-  return merged.map(([start, end]) => {
+  const hunks = merged.map(([start, end]) => {
     const hunkLines = lines.slice(start, end);
     return { header: rangeHeader(hunkLines), lines: hunkLines, start, end };
   });
+  const last = hunks[hunks.length - 1];
+  return cut && last != null && !last.lines.some(isChange) ? hunks.slice(0, -1) : hunks;
 }
 
 export function shownChangeCount(block: FileBlock, ignoreWhitespace: boolean): number {
@@ -144,8 +148,31 @@ export function changesThrough(
 }
 
 /** The block's own changes with a few lines of context, cut into hunks the way git would. */
-export function blockHunks(block: FileBlock, ignoreWhitespace: boolean): ShownHunk[] {
-  return block.file.hunks.flatMap((hunk) => hunksOf(shownLines(block, hunk, ignoreWhitespace), CONTEXT_LINES));
+export function blockHunks(
+  block: FileBlock,
+  ignoreWhitespace: boolean,
+  changeLimit = Infinity,
+): { hunks: ShownHunk[]; cut: boolean } {
+  const { hunks, cut } = takeBlockChanges(block, ignoreWhitespace, changeLimit);
+  const last = hunks.length - 1;
+  return { hunks: hunks.flatMap(({ lines }, i) => hunksOf(lines, CONTEXT_LINES, [], cut && i === last)), cut };
+}
+
+/** Each hunk's shown lines, through `changeLimit` changes across the block. */
+function takeBlockChanges(
+  block: FileBlock,
+  ignoreWhitespace: boolean,
+  changeLimit: number,
+): { hunks: { hunk: DiffHunk; lines: readonly DiffLine[] }[]; cut: boolean } {
+  const hunks: { hunk: DiffHunk; lines: readonly DiffLine[] }[] = [];
+  let changes = 0;
+  for (const hunk of block.file.hunks) {
+    const taken = takeChanges(shownLines(block, hunk, ignoreWhitespace), changeLimit - changes);
+    hunks.push({ hunk, lines: taken.lines });
+    if (taken.cut) return { hunks, cut: true };
+    changes += taken.changes;
+  }
+  return { hunks, cut: false };
 }
 
 /**

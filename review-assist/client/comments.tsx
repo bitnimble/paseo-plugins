@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { type CommentTarget, commentLine, commentTarget, rangeLabel, suggestible } from "../shared/comments";
+import { type CommentTarget, commentLine, commentTarget, rangeDescription, rangeLabel, suggestible } from "../shared/comments";
 import type { DiffFile } from "../shared/diff";
 import { type FileBlock, isWholeFile } from "../shared/guide";
 import type { DraftComment } from "../shared/protocol";
@@ -43,21 +43,18 @@ export function countByPath(comments: readonly DraftComment[]): Map<string, numb
   return counts;
 }
 
-export type Card = DraftComment | CommentDraft;
+export type Card = { readonly kind: "saved"; readonly comment: DraftComment } | CommentDraft;
 
 export function cardKey(card: Card): string {
-  if (!("kind" in card)) return card.id;
+  if (card.kind === "saved") return card.comment.id;
   return card.kind === "edit" ? `edit:${card.comment.id}` : "composer";
 }
 
 /** Where a card goes among `lines`; -1 when `lines` lack its line. */
 export function cardLine(card: Card, lines: readonly SideLine[]): number {
-  if ("kind" in card) {
-    if (card.kind === "edit") return commentLine(card.comment, lines);
-    // By line, not list: revealing context cuts a new list from the same lines.
-    return lines.indexOf(card.lines[card.end]);
-  }
-  return commentLine(card, lines);
+  // By line, not list: revealing context cuts a new list from the same lines.
+  if (card.kind === "new") return lines.indexOf(card.lines[card.end]);
+  return commentLine(card.comment, lines);
 }
 
 export function draftTarget(file: DiffFile, draft: CommentDraft): CommentTarget | null {
@@ -98,7 +95,7 @@ export function scopeEdges<T>(items: readonly T[], covered: (item: T) => boolean
 export function fileCards(comments: FileComments): Card[] {
   const { draft } = comments;
   const editing = draft?.kind === "edit" ? draft.comment.id : null;
-  const cards: Card[] = comments.comments.filter((comment) => comment.id !== editing);
+  const cards = comments.comments.flatMap((comment): Card[] => (comment.id === editing ? [] : [{ kind: "saved", comment }]));
   return draft == null ? cards : [...cards, draft];
 }
 
@@ -115,7 +112,7 @@ export function UnplacedCards({
   comments: FileComments;
 }) {
   const whole = isWholeFile(block);
-  const shown = cards.filter((card) => whole || "kind" in card);
+  const shown = cards.filter((card) => whole || card.kind !== "saved");
   const elsewhere = cards.length - shown.length;
   return (
     <>
@@ -144,13 +141,14 @@ export function CommentSlot({
   card: Card;
   comments: FileComments;
 }) {
-  if (!("kind" in card)) {
+  if (card.kind === "saved") {
+    const { comment } = card;
     return (
       <CommentCard
         theme={theme}
-        comment={card}
-        onEdit={() => comments.edit(card)}
-        onDelete={() => comments.remove(card.id)}
+        comment={comment}
+        onEdit={() => comments.edit(comment)}
+        onDelete={() => comments.remove(comment.id)}
       />
     );
   }
@@ -185,8 +183,7 @@ function CommentCard({
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <Icon name="MessageSquare" size={12} color={theme.colors.foregroundMuted} />
         <Text style={{ flex: 1, fontSize: 12, color: theme.colors.foregroundMuted }}>
-          {rangeLabel(comment)}
-          {comment.side === "old" ? " of the old file" : ""} · Not sent yet
+          {rangeDescription(comment)} · Not sent yet
         </Text>
         <Button theme={theme} size="xs" variant="ghost" label="Edit" onPress={onEdit} />
         <Button theme={theme} size="xs" variant="ghost" label="Delete" onPress={onDelete} />
@@ -257,8 +254,7 @@ function CommentComposer({
   return (
     <View ref={card} style={cardStyle(theme)}>
       <Text style={{ fontSize: 12, color: theme.colors.foregroundMuted }}>
-        {rangeLabel(target)}
-        {target.side === "old" ? " of the old file" : ""}
+        {rangeDescription(target)}
         {extendable && !hasMouse() ? " · Long-press another line number to extend" : ""}
       </Text>
       <TextInput
