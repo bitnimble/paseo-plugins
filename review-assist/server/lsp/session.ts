@@ -48,7 +48,11 @@ export class LspSession {
     child.on("exit", (code) => this.fail(new Error(`Language server exited with code ${String(code)}`)));
   }
 
-  static async start(argv: readonly string[], rootPath: string): Promise<LspSession> {
+  static async start(
+    argv: readonly string[],
+    rootPath: string,
+    initializationOptions: Readonly<Record<string, unknown>>,
+  ): Promise<LspSession> {
     const [command, ...args] = argv;
     if (command == null) {
       throw new Error("Language server command is empty");
@@ -56,7 +60,7 @@ export class LspSession {
     const child = spawnProcess(command, args, { cwd: rootPath, stdio: "pipe" });
     const session = new LspSession(child, rootPath);
     try {
-      await session.initialize();
+      await session.initialize(initializationOptions);
     } catch (error) {
       // A server that spawned but never answered initialize is untracked; nothing else can stop it.
       await terminateProcess(child);
@@ -116,13 +120,14 @@ export class LspSession {
     this.send({ jsonrpc: "2.0", method, params });
   }
 
-  private async initialize(): Promise<void> {
+  private async initialize(initializationOptions: Readonly<Record<string, unknown>>): Promise<void> {
     await this.request("initialize", {
       processId: process.pid,
       clientInfo: { name: "paseo-review-assist" },
       rootUri: this.rootUri(),
       rootPath: this.rootPath,
       workspaceFolders: [this.workspaceFolder()],
+      initializationOptions,
       capabilities: {
         workspace: { workspaceFolders: true, configuration: true },
         textDocument: {

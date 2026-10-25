@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { readDiff } from "../server/git";
 import { UNCOMMITTED_MODE } from "../shared/protocol";
 import { decodeMessages, encodeMessage } from "../server/lsp/framing";
@@ -25,7 +26,11 @@ const servers = new LanguageServers(new TreeFiles());
 
 before(() => {
   repo = freshRepo();
-  writeIn(repo, "lib.ts", "export function greet(name: string): string {\n  return `hi ${name}`;\n}\n");
+  // typescript-language-server doesn't bundle TypeScript; it uses the repository's own, as a real project has.
+  mkdirSync(join(repo, "node_modules"));
+  const typescript = join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "typescript");
+  symlinkSync(typescript, join(repo, "node_modules", "typescript"));
+  writeIn(repo, ".gitignore", "node_modules\n");  writeIn(repo, "lib.ts", "export function greet(name: string): string {\n  return `hi ${name}`;\n}\n");
   gitIn(repo, "add", "-A");
   gitIn(repo, "commit", "-q", "-m", "base");
   writeIn(repo, "use.ts", 'import { greet } from "./lib";\n\nexport const message = greet("review");\n');
@@ -99,7 +104,7 @@ test("messages decode once whole, however the bytes are split", () => {
 });
 
 test("a response spread over many chunks arrives whole", async () => {
-  const session = await LspSession.start([process.execPath, "-e", ECHO_SERVER], repo);
+  const session = await LspSession.start([process.execPath, "-e", ECHO_SERVER], repo, {});
   try {
     const big = "é".repeat(500_000);
     const [first, second] = await Promise.all([session.request("echo", [big]), session.request("echo", ["small"])]);

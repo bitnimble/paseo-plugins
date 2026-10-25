@@ -142,7 +142,7 @@ export class LanguageServers {
     }
     // Registered before any await: two requests arriving together must not each spawn a server,
     // leaving one untracked and impossible to stop.
-    const started = LspSession.start(server.command, root);
+    const started = LspSession.start(server.command, root, server.initializationOptions);
     byServer.set(server.id, started);
     started.catch(() => {
       if (byServer.get(server.id) === started) byServer.delete(server.id);

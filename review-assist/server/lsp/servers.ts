@@ -6,6 +6,7 @@ interface ServerSpec {
   readonly command: readonly string[];
   /** File extension to LSP language id. */
   readonly languages: Readonly<Record<string, string>>;
+  readonly initializationOptions?: Readonly<Record<string, unknown>>;
 }
 
 const SERVERS: readonly ServerSpec[] = [
@@ -22,6 +23,8 @@ const SERVERS: readonly ServerSpec[] = [
       ".cjs": "javascript",
       ".jsx": "javascriptreact",
     },
+    // The syntax server answers while the project loads, so a first go-to-definition stops at the import.
+    initializationOptions: { tsserver: { useSyntaxServer: "never" } },
   },
   { id: "python", command: ["pyright-langserver", "--stdio"], languages: { ".py": "python", ".pyi": "python" } },
   { id: "go", command: ["gopls"], languages: { ".go": "go" } },
@@ -37,6 +40,7 @@ export interface ServerChoice {
   readonly id: string;
   readonly languageId: string;
   readonly command: readonly string[];
+  readonly initializationOptions: Readonly<Record<string, unknown>>;
 }
 
 export function serverFor(root: string, path: string): ServerChoice | null {
@@ -48,5 +52,10 @@ export function serverFor(root: string, path: string): ServerChoice | null {
   const [binary, ...args] = spec.command;
   // The repository's own copy matches its toolchain.
   const local = join(root, "node_modules", ".bin", binary);
-  return { id: spec.id, languageId: spec.languages[extension], command: [existsSync(local) ? local : binary, ...args] };
+  return {
+    id: spec.id,
+    languageId: spec.languages[extension],
+    command: [existsSync(local) ? local : binary, ...args],
+    initializationOptions: spec.initializationOptions ?? {},
+  };
 }
