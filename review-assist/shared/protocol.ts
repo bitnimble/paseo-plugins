@@ -2,6 +2,7 @@ import type { HighlightStyle } from "@getpaseo/highlight";
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { type FileFacts, NO_FACTS } from "./diff";
+import type { Failed } from "./errors";
 import { guideSectionSchema } from "./guide";
 
 const diffModeSchema = z.discriminatedUnion("kind", [
@@ -23,6 +24,8 @@ const diffBaseSchema = z.object({ label: z.string(), sha: z.string() });
 export type DiffBase = z.infer<typeof diffBaseSchema>;
 
 const target = { directory: z.string(), mode: diffModeSchema };
+
+const failedSchema = z.object({ status: z.literal("failed"), error: z.string() }) satisfies z.ZodType<Failed>;
 
 const deflatedSchema = z.object({ deflated: z.string() }).strict();
 /** An output's JSON, raw-deflated and base64-encoded. */
@@ -60,7 +63,7 @@ export const diffRpc = definePackedRpc({
       tree: z.string(),
       facts: fileFactsSchema,
     }),
-    z.object({ status: z.literal("failed"), error: z.string() }),
+    failedSchema,
   ]),
 });
 
@@ -77,7 +80,7 @@ export const fileRpc = definePackedRpc({
   input: z.object({ root: z.string(), tree: z.string().nullable(), path: z.string() }),
   output: z.discriminatedUnion("status", [
     z.object({ status: z.literal("ready"), text: z.string() }),
-    z.object({ status: z.literal("failed"), error: z.string() }),
+    failedSchema,
   ]),
 });
 
@@ -86,7 +89,7 @@ const blobPreviewSchema = z.discriminatedUnion("status", [
   /** Text git was told not to diff, as with the `-diff` attribute. */
   z.object({ status: z.literal("text") }),
   z.object({ status: z.literal("binary") }),
-  z.object({ status: z.literal("failed"), error: z.string() }),
+  failedSchema,
 ]);
 export type BlobPreview = z.infer<typeof blobPreviewSchema>;
 
@@ -123,7 +126,7 @@ export const lspRpc = definePackedRpc({
   output: z.discriminatedUnion("status", [
     z.object({ status: z.literal("ok"), result: z.unknown() }),
     z.object({ status: z.literal("unsupported") }),
-    z.object({ status: z.literal("failed"), error: z.string() }),
+    failedSchema,
   ]),
 });
 
@@ -217,7 +220,7 @@ export const highlightRpc = definePackedRpc({
   output: z.discriminatedUnion("status", [
     z.object({ status: z.literal("ready"), old: lineTokensSchema, new: lineTokensSchema }),
     z.object({ status: z.literal("unsupported") }),
-    z.object({ status: z.literal("failed"), error: z.string() }),
+    failedSchema,
   ]),
 });
 
@@ -435,21 +438,20 @@ export const stateRpc = definePackedRpc({
   output: reviewStateSchema,
 });
 
-export const viewedRpc = definePackedRpc({
-  name: "review.viewed",
-  input: z.object({ ...target, ...viewedMarkSchema.shape, viewed: z.boolean() }),
-  output: reviewStateSchema,
-});
-
-export const commentRpc = definePackedRpc({
-  name: "review.comment",
-  input: z.object({
-    ...target,
-    change: z.discriminatedUnion("action", [
-      z.object({ action: z.literal("save"), comment: draftCommentSchema }),
-      z.object({ action: z.literal("delete"), id: z.string() }),
-    ]),
+const stateChangeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("viewed"), mark: viewedMarkSchema, viewed: z.boolean() }),
+  /** Drops the `remove` ids, then saves each of `save` over any comment with its id. */
+  z.object({
+    kind: z.literal("comments"),
+    remove: z.array(z.string()).readonly(),
+    save: z.array(draftCommentSchema).readonly(),
   }),
+]);
+export type StateChange = z.infer<typeof stateChangeSchema>;
+
+export const stateChangeRpc = definePackedRpc({
+  name: "review.state-change",
+  input: z.object({ ...target, change: stateChangeSchema }),
   output: reviewStateSchema,
 });
 
@@ -495,6 +497,6 @@ export const submitRpc = defineRpc({
   }),
   output: z.discriminatedUnion("status", [
     z.object({ status: z.literal("sent"), state: reviewStateSchema }),
-    z.object({ status: z.literal("failed"), error: z.string() }),
+    failedSchema,
   ]),
 });

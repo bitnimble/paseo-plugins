@@ -1,7 +1,7 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { isEdit, rangeLabel } from "../shared/comments";
-import { messageOf } from "../shared/errors";
+import { isEdit, rangeDescription, rangeLabel } from "../shared/comments";
+import { failed, messageOf } from "../shared/errors";
 import type { AgentChoice, DraftComment, Reviewer, submitRpc } from "../shared/protocol";
 import { repoRoot } from "./git";
 import type { ReviewStates } from "./review-state";
@@ -37,8 +37,7 @@ export async function submitReview(
   try {
     const { applied, rest } = await applySuggestions(await repoRoot(input.directory), comments);
     // The edits are on disk now: a failed send below must leave only the rest, renumbered, to retry.
-    await states.deleteComments(input, applied.map(({ id }) => id));
-    for (const comment of rest) await states.saveComment(input, comment);
+    await states.apply(input, { kind: "comments", remove: applied.map(({ id }) => id), save: rest });
     if (reviewer != null && rest.length > 0) {
       await sendReview(paseo, { ...input, reviewer, comments: rest, applied }).catch((error: unknown) => {
         const made = applied.length === 0 ? "" : `Made the suggested ${applied.length === 1 ? "edit" : "edits"}, but sending failed: `;
@@ -48,11 +47,7 @@ export async function submitReview(
   } catch (error) {
     return failed(error);
   }
-  return { status: "sent", state: await states.deleteComments(input, commentIds) };
-}
-
-function failed(error: unknown): { status: "failed"; error: string } {
-  return { status: "failed", error: messageOf(error) };
+  return { status: "sent", state: await states.apply(input, { kind: "comments", remove: commentIds, save: [] }) };
 }
 
 /** As Paseo's own Changes panel sends them, so the agent reads them the same way. */
@@ -105,5 +100,5 @@ export async function sendReview(
 }
 
 function where(comment: DraftComment): string {
-  return `${comment.filePath} ${rangeLabel(comment).toLowerCase()}${comment.side === "old" ? " of the old file" : ""}`;
+  return `${comment.filePath} ${rangeDescription(comment).toLowerCase()}`;
 }

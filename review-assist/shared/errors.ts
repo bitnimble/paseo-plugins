@@ -1,5 +1,14 @@
+export interface Failed {
+  status: "failed";
+  error: string;
+}
+
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function failed(error: unknown): Failed {
+  return { status: "failed", error: messageOf(error) };
 }
 
 /** The stack, or message, followed by those of every error an `AggregateError` gathers. */

@@ -14,58 +14,47 @@ export function cacheDirectory(): string {
   return join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "paseo-review-assist");
 }
 
-/** A JSON file per directory and diff mode, cached in memory, with each slot's updates applied in order. */
+/** A JSON file per name, cached in memory, with each file's updates applied in order. */
 export class JsonSlots<Value> {
   private readonly values = new Map<string, Promise<Value | null>>();
   private readonly writes = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly directory: string,
-    private readonly suffix: string,
     private readonly schema: ZodType<Value>,
   ) {}
 
-  read(target: Target): Promise<Value | null> {
-    const key = slotKey(target);
-    let value = this.values.get(key);
+  read(name: string): Promise<Value | null> {
+    let value = this.values.get(name);
     if (value == null) {
-      const loading = this.load(key);
-      this.values.set(key, loading);
+      const loading = readJsonFile(this.fileFor(name), this.schema);
+      this.values.set(name, loading);
       loading.catch(() => {
-        if (this.values.get(key) === loading) this.values.delete(key);
+        if (this.values.get(name) === loading) this.values.delete(name);
       });
       value = loading;
     }
     return value;
   }
 
-  update(target: Target, change: (current: Value | null) => Value): Promise<Value> {
-    const key = slotKey(target);
-    const result = (this.writes.get(key) ?? Promise.resolve()).then(async () => {
-      const next = change(await this.read(target));
-      await this.save(key, next);
+  update(name: string, change: (current: Value | null) => Value): Promise<Value> {
+    const result = (this.writes.get(name) ?? Promise.resolve()).then(async () => {
+      const next = change(await this.read(name));
+      await writePrivateJson(this.directory, this.fileFor(name), next);
+      this.values.set(name, Promise.resolve(next));
       return next;
     });
-    this.writes.set(key, result.catch(() => undefined));
+    this.writes.set(name, result.catch(() => undefined));
     return result;
   }
 
-  private load(key: string): Promise<Value | null> {
-    return readJsonFile(this.fileFor(key), this.schema);
-  }
-
-  private async save(key: string, value: Value): Promise<void> {
-    await writePrivateJson(this.directory, this.fileFor(key), value);
-    this.values.set(key, Promise.resolve(value));
-  }
-
-  private fileFor(key: string): string {
-    return join(this.directory, `${key}${this.suffix}.json`);
+  private fileFor(name: string): string {
+    return join(this.directory, `${name}.json`);
   }
 }
 
 /** Null when the file is missing or does not match `schema`; other read errors reject. */
-export async function readJsonFile<Value>(file: string, schema: ZodType<Value>): Promise<Value | null> {
+async function readJsonFile<Value>(file: string, schema: ZodType<Value>): Promise<Value | null> {
   // Only a missing file is empty: treating EACCES or EMFILE as empty lets the next write wipe it.
   const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
@@ -75,7 +64,7 @@ export async function readJsonFile<Value>(file: string, schema: ZodType<Value>):
   return parsed.success ? parsed.data : null;
 }
 
-export async function writePrivateJson(directory: string, file: string, value: unknown): Promise<void> {
+async function writePrivateJson(directory: string, file: string, value: unknown): Promise<void> {
   // Holds diffs and comments on them, untracked files included, so keep them private.
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const staging = `${file}.${randomUUID()}.tmp`;
@@ -95,6 +84,6 @@ export function targetKey({ directory, mode }: Target): string {
   return `${directory}\0${modeKey(mode)}`;
 }
 
-function slotKey(target: Target): string {
+export function targetSlot(target: Target): string {
   return createHash("sha256").update(targetKey(target)).digest("hex").slice(0, 32);
 }

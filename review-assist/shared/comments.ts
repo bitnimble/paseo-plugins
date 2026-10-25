@@ -70,6 +70,10 @@ export function rangeLabel(comment: Pick<DraftComment, "startLine" | "lineNumber
     : `Lines ${comment.startLine}–${comment.lineNumber}`;
 }
 
+export function rangeDescription(comment: Pick<DraftComment, "startLine" | "lineNumber" | "side">): string {
+  return `${rangeLabel(comment)}${comment.side === "old" ? " of the old file" : ""}`;
+}
+
 function contextLine(line: SideLine): ContextLine {
   return {
     oldLineNumber: line.oldNumber,

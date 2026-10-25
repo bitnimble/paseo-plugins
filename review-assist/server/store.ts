@@ -5,7 +5,7 @@ import { type GuideJob, type GuideRecord, guideRecordSchema } from "../shared/pr
 import { readDiff } from "./git";
 import { messageOf } from "../shared/errors";
 import { SegmentError, proposeSections, resolveModel } from "./segment";
-import { JsonSlots, type Target, targetKey } from "./slots";
+import { JsonSlots, type Target, targetKey, targetSlot } from "./slots";
 
 export class GuideStore {
   private readonly jobs = new Map<string, GuideJob>();
@@ -15,11 +15,11 @@ export class GuideStore {
     directory: string,
     private readonly configuredModel: () => Promise<string>,
   ) {
-    this.records = new JsonSlots(directory, "", guideRecordSchema);
+    this.records = new JsonSlots(directory, guideRecordSchema);
   }
 
   async read(target: Target): Promise<{ job: GuideJob | null; guide: GuideRecord | null }> {
-    return { job: this.job(target), guide: await this.records.read(target) };
+    return { job: this.job(target), guide: await this.records.read(targetSlot(target)) };
   }
 
   job(target: Target): GuideJob | null {
@@ -77,6 +77,6 @@ export class GuideStore {
       model,
       createdAt: new Date().toISOString(),
     };
-    await this.records.update(target, () => record);
+    await this.records.update(targetSlot(target), () => record);
   }
 }

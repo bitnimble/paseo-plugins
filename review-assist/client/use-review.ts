@@ -2,7 +2,6 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { withComment } from "../shared/comments";
 import { type FileFacts, type ParsedDiff, parseDiff } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 import {
@@ -13,27 +12,27 @@ import {
   type GuideJob,
   type GuideRecord,
   type ReviewState,
+  type StateChange,
   type Trust,
   type ViewedMark,
-  commentRpc,
   diffRpc,
   generateRpc,
   guideJobRpc,
   guideRpc,
   modeKey,
   setTrustRpc,
+  stateChangeRpc,
   stateRpc,
   submitRpc,
   trustRpc,
-  viewedRpc,
 } from "../shared/protocol";
+import { EMPTY_REVIEW_STATE, applyStateChange } from "../shared/review-state";
 import type { CommentStore } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
 import { usePackedRpc } from "./packed";
 
 const JOB_POLL_MS = 2_000;
 const STATE_WRITE = ["review-state-write"];
-const EMPTY_STATE: ReviewState = { viewed: [], comments: [] };
 
 export type LiveDiff =
   | { readonly status: "loading" }
@@ -52,11 +51,6 @@ export interface GuideState {
   /** The diff the guide was generated from, which may be older than the live diff. */
   readonly diff: ParsedDiff | null;
 }
-
-type StateChange =
-  | { readonly kind: "viewed"; readonly mark: ViewedMark; readonly viewed: boolean }
-  | { readonly kind: "save"; readonly comment: DraftComment }
-  | { readonly kind: "delete"; readonly id: string };
 
 export interface Review {
   readonly live: LiveDiff;
@@ -102,8 +96,7 @@ export function useReview(input: {
   const readGuideJob = useRpc(guideJobRpc);
   const startGeneration = useRpc(generateRpc);
   const readState = usePackedRpc(stateRpc);
-  const writeViewed = usePackedRpc(viewedRpc);
-  const writeComment = usePackedRpc(commentRpc);
+  const writeState = usePackedRpc(stateChangeRpc);
   const sendComments = useRpc(submitRpc);
   const readTrust = useRpc(trustRpc);
   const writeTrust = useRpc(setTrustRpc);
@@ -152,16 +145,12 @@ export function useReview(input: {
   });
   const stateWrite = useMutation({
     mutationKey: STATE_WRITE,
-    mutationFn: (change: StateChange) => {
-      if (change.kind === "viewed") return writeViewed({ ...target, ...change.mark, viewed: change.viewed });
-      return writeComment({
-        ...target,
-        change: change.kind === "save" ? { action: "save", comment: change.comment } : { action: "delete", id: change.id },
-      });
-    },
+    mutationFn: (change: StateChange) => writeState({ ...target, change }),
     onMutate: async (change) => {
       await queryClient.cancelQueries({ queryKey: stateKey });
-      queryClient.setQueryData(stateKey, (old: ReviewState | undefined) => applyChange(old ?? EMPTY_STATE, change));
+      queryClient.setQueryData(stateKey, (old: ReviewState | undefined) =>
+        applyStateChange(old ?? EMPTY_REVIEW_STATE, change),
+      );
     },
     onError: (error, change) =>
       toast.error(`Could not save the ${change.kind === "viewed" ? "viewed mark" : "comment"}: ${messageOf(error)}`),
@@ -210,7 +199,7 @@ export function useReview(input: {
     live,
     guide,
     guideError: guideData == null && guideQuery.error != null ? messageOf(guideQuery.error) : null,
-    state: stateQuery.data ?? EMPTY_STATE,
+    state: stateQuery.data ?? EMPTY_REVIEW_STATE,
     trust: trustQuery.data?.trust ?? null,
     refreshing: diffQuery.isFetching,
     refresh: () => {
@@ -219,12 +208,12 @@ export function useReview(input: {
     },
     generate: () => generation.mutate(),
     setViewed: (mark, viewed) => stateWrite.mutate({ kind: "viewed", mark, viewed }),
-    saveComment: (comment) => stateWrite.mutate({ kind: "save", comment }),
-    deleteComment: (id) => stateWrite.mutate({ kind: "delete", id }),
+    saveComment: (comment) => stateWrite.mutate({ kind: "comments", remove: [], save: [comment] }),
+    deleteComment: (id) => stateWrite.mutate({ kind: "comments", remove: [id], save: [] }),
     setTrust: (trusted) => trustWrite.mutate(trusted),
     submit: async ({ reviewer, message }) => {
       if (live.status !== "ready") return "The diff is still loading.";
-      const commentIds = (stateQuery.data ?? EMPTY_STATE).comments.map(({ id }) => id);
+      const commentIds = (stateQuery.data ?? EMPTY_REVIEW_STATE).comments.map(({ id }) => id);
       try {
         const result = await sendComments({ ...target, baseRef: live.base.sha, reviewer, message, commentIds });
         if (result.status === "failed") return result.error;
@@ -239,18 +228,6 @@ export function useReview(input: {
       }
     },
   };
-}
-
-function applyChange(state: ReviewState, change: StateChange): ReviewState {
-  if (change.kind === "viewed") {
-    const { path, fingerprint } = change.mark;
-    const others = state.viewed.filter((mark) => mark.path !== path || mark.fingerprint !== fingerprint);
-    return { ...state, viewed: change.viewed ? [...others, change.mark] : others };
-  }
-  if (change.kind === "delete") {
-    return { ...state, comments: state.comments.filter(({ id }) => id !== change.id) };
-  }
-  return { ...state, comments: withComment(state.comments, change.comment) };
 }
 
 function safeParse(raw: string, facts?: FileFacts): { diff: ParsedDiff } | { error: string } {

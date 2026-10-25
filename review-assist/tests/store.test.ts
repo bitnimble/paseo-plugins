@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -98,7 +99,9 @@ test("viewed marks and comments persist through concurrent writes and a new guid
   const cache = scratchDirectory();
   const states = new ReviewStates(cache);
   const slot = target(repo);
-  const mark = (path: string, fingerprint: string, viewed = true) => states.setViewed(slot, { path, fingerprint }, viewed);
+  const mark = (path: string, fingerprint: string, viewed = true) =>
+    states.apply(slot, { kind: "viewed", mark: { path, fingerprint }, viewed });
+  const save = (comment: DraftComment) => states.apply(slot, { kind: "comments", remove: [], save: [comment] });
   await Promise.all([mark("app.ts", "1"), mark("app.ts", "2"), mark("notes.md", "1")]);
   await mark("app.ts", "1", false);
 
@@ -117,9 +120,9 @@ test("viewed marks and comments persist through concurrent writes and a new guid
     suggestion: null,
     createdAt: "2026-10-21T00:00:00.000Z",
   };
-  await Promise.all([states.saveComment(slot, comment), states.saveComment(slot, { ...comment, id: "c2" })]);
-  await states.saveComment(slot, { ...comment, body: "Why shout two?" });
-  await states.deleteComments(slot, ["c2"]);
+  await Promise.all([save(comment), save({ ...comment, id: "c2" })]);
+  await save({ ...comment, body: "Why shout two?" });
+  await states.apply(slot, { kind: "comments", remove: ["c2"], save: [] });
 
   const store = new GuideStore(cache, async () => "fake/model");
   store.generate({ ...slot, workspaceId: "w" }, fakePaseo(ANSWER).paseo);
@@ -132,6 +135,8 @@ test("viewed marks and comments persist through concurrent writes and a new guid
     ],
     comments: [{ ...comment, body: "Why shout two?" }],
   });
+  const slotName = createHash("sha256").update(`${repo}\0uncommitted`).digest("hex").slice(0, 32);
+  assert.deepEqual(readdirSync(cache).sort(), [`${slotName}.json`, `${slotName}.state.json`]);
 });
 
 test("an unusable answer fails the job and keeps the agent for inspection", async () => {

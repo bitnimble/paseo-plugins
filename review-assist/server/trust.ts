@@ -1,51 +1,36 @@
-import { join } from "node:path";
 import { z } from "zod";
 import type { Trust } from "../shared/protocol";
-import { readJsonFile, writePrivateJson } from "./slots";
+import { JsonSlots } from "./slots";
 
 const bookSchema = z.record(z.string(), z.boolean());
 type Book = z.infer<typeof bookSchema>;
 
+const BOOK = "trust";
+
 /** Decisions by Paseo project, covering all of a project's workspaces. */
 export class ProjectTrust {
-  private book: Promise<Book> | null = null;
-  private writes: Promise<unknown> = Promise.resolve();
+  private readonly slots: JsonSlots<Book>;
 
-  constructor(private readonly directory: string) {}
+  constructor(directory: string) {
+    this.slots = new JsonSlots(directory, bookSchema);
+  }
 
   async read(projectId: string): Promise<Trust> {
-    const book = await this.load();
+    const book = await this.book();
     if (!Object.hasOwn(book, projectId)) return "undecided";
     return book[projectId] ? "trusted" : "restricted";
   }
 
   async allows(projectId: string): Promise<boolean> {
-    return (await this.load())[projectId] === true;
+    return (await this.book())[projectId] === true;
   }
 
-  decide(projectId: string, trusted: boolean): Promise<Trust> {
-    const decided = this.writes.then(async () => {
-      const book = { ...(await this.load()), [projectId]: trusted };
-      await writePrivateJson(this.directory, this.file(), book);
-      this.book = Promise.resolve(book);
-      return trusted ? ("trusted" as const) : ("restricted" as const);
-    });
-    this.writes = decided.catch(() => undefined);
-    return decided;
+  async decide(projectId: string, trusted: boolean): Promise<Trust> {
+    await this.slots.update(BOOK, (book) => ({ ...book, [projectId]: trusted }));
+    return trusted ? "trusted" : "restricted";
   }
 
-  private load(): Promise<Book> {
-    this.book ??= readJsonFile(this.file(), bookSchema).then(
-      (book) => book ?? {},
-      (error: unknown) => {
-        this.book = null;
-        throw error;
-      },
-    );
-    return this.book;
-  }
-
-  private file(): string {
-    return join(this.directory, "trust.json");
+  private async book(): Promise<Book> {
+    return (await this.slots.read(BOOK)) ?? {};
   }
 }

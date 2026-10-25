@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import test, { after } from "node:test";
 import { ReviewAttachmentSchema } from "@getpaseo/protocol/messages";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { sendReview, submitReview, workspaceAgents } from "../server/agents";
-import type { ReviewStates } from "../server/review-state";
-import { commentLine, commentTarget, suggestible } from "../shared/comments";
+import { ReviewStates } from "../server/review-state";
+import { type CommentTarget, commentLine, commentTarget, suggestible } from "../shared/comments";
 import { parseDiff } from "../shared/diff";
 import { fullBlocks } from "../shared/guide";
 import { DEFAULT_BRANCH_MODE, type DraftComment } from "../shared/protocol";
 import { blockSides } from "../shared/sides";
+import { freshRepo, removeScratch, scratchDirectory, writeIn } from "./repo";
+
+after(removeScratch);
 
 const diff = parseDiff(
   [
@@ -153,6 +158,56 @@ test("submitting needs an agent unless every comment is a suggested edit, and co
 
   assert.deepEqual(await submit(["1"]), { status: "failed", error: "Pick an agent for the comments." });
   assert.deepEqual(await submit(["gone"]), { status: "failed", error: "These comments were already sent or deleted." });
+});
+
+test("submitting writes the edits' comments away in one change before sending, and the rest in one after", async (t) => {
+  const repo = freshRepo();
+  writeIn(repo, "f.ts", "a\nB\nc\nD\n");
+  const states = new ReviewStates(scratchDirectory());
+  const slot = { directory: repo, mode: DEFAULT_BRANCH_MODE };
+  const at = (line: number): CommentTarget => ({
+    filePath: "f.ts",
+    side: "new",
+    startLine: line,
+    lineNumber: line,
+    context: {
+      hunkHeader: "@@ -1,4 +1,4 @@",
+      targetLine: { oldLineNumber: null, newLineNumber: line, type: "add", content: "" },
+      lines: [],
+    },
+  });
+  const edit = { ...draft(at(2), "edit", "Split."), suggestion: { original: "B", replacement: "B1\nB2" } };
+  const plain = draft(at(4), "plain", "Why D?");
+  const kept = draft(at(1), "kept", "Later.");
+  await states.apply(slot, { kind: "comments", remove: [], save: [edit, plain, kept] });
+  const changes = t.mock.method(states, "apply");
+  let online = false;
+  const sent: string[] = [];
+  const paseo = {
+    agents: {
+      ref: () => ({
+        send: async (text: string) => {
+          if (!online) throw new Error("offline");
+          sent.push(text);
+        },
+      }),
+    },
+  } as unknown as PluginHandlerContext["paseo"];
+  const submit = (commentIds: string[]) =>
+    submitReview(paseo, states, { ...slot, baseRef: "abc123", reviewer: { kind: "agent", id: "a" }, message: "", commentIds });
+
+  assert.deepEqual(await submit(["edit", "plain"]), {
+    status: "failed",
+    error: "Made the suggested edit, but sending failed: offline",
+  });
+  assert.equal(changes.mock.callCount(), 1);
+  assert.equal(readFileSync(join(repo, "f.ts"), "utf8"), "a\nB1\nB2\nc\nD\n");
+  assert.deepEqual((await states.read(slot)).comments, [{ ...plain, startLine: 5, lineNumber: 5 }, kept]);
+
+  online = true;
+  assert.deepEqual(await submit(["plain"]), { status: "sent", state: { viewed: [], comments: [kept] } });
+  assert.equal(changes.mock.callCount(), 3);
+  assert.deepEqual(sent, ["Please address these review comments.\n\n- f.ts line 5: Why D?"]);
 });
 
 test("with no agent to send to, the comments start one in the workspace", async () => {
