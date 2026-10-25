@@ -13,6 +13,7 @@ import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard
 import { ScrollLock } from "./zoomable-image";
 import type { CodeSource } from "./monaco/review-monaco";
 import { CODE_SURFACE } from "./palette";
+import { SettledWidth } from "./settled-width";
 import { usePalette } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
 import { isMonacoSupported } from "./web";
@@ -193,7 +194,7 @@ export function DiffList(props: DiffListProps) {
     return () => clearTimeout(retry.current);
   }, [target, blocks.length]);
 
-  return (
+  const body = (
     <View ref={frame} style={styles.list} onLayout={(event) => setFrameHeight(event.nativeEvent.layout.height)}>
       <ScrollLock.Provider value={setScrollLocked}>
         <CentreAboveKeyboard.Provider value={centreAboveKeyboard}>
@@ -277,6 +278,7 @@ export function DiffList(props: DiffListProps) {
       ) : null}
     </View>
   );
+  return <SettledWidth>{body}</SettledWidth>;
 }
 
 function draftPath(draft: CommentDraft): string {

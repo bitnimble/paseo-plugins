@@ -50,8 +50,8 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   const [tab, setTab] = useState<Tab>("guided");
   const [menu, setMenu] = useState<Menu | null>(null);
   const [fold, setFold] = useState<FoldCommand | null>(null);
-  const [width, setWidth] = useState<number | null>(null);
-  const narrow = layout.compact || (width != null && !fitsPane(width));
+  const [fits, setFits] = useState(true);
+  const narrow = layout.compact || !fits;
   const { view, setView } = useViewOptions(narrow);
   const review = useReview({
     workspaceId,
@@ -103,7 +103,7 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
   return (
     <View
       style={{ flex: 1, backgroundColor: theme.colors.surface0 }}
-      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      onLayout={(event) => setFits(fitsPane(event.nativeEvent.layout.width))}
     >
       {menu == null ? null : <MenuBackdrop onPress={() => setMenu(null)} />}
       <View

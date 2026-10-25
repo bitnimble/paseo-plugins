@@ -51,7 +51,6 @@ export function Split({
 }) {
   const [dragged, setDragged] = useState<number | null>(null);
   const [room, setRoom] = useState(Infinity);
-  const [diffWidth, setDiffWidth] = useState<number | null>(null);
   const [filter, setFilter] = useState("");
   // The handle unmounts with the pane, so a drag it was holding never drops.
   if (pane == null && dragged != null) setDragged(null);
@@ -59,8 +58,8 @@ export function Split({
   const width = dragged ?? clamp(paneWidth);
   return (
     <View
-      style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}
-      onLayout={(event) => setRoom(event.nativeEvent.layout.width - MIN_DIFF_WIDTH)}
+      style={{ flex: 1, flexDirection: "row" }}
+      onLayout={(event) => setRoom(Math.min(MAX_PANE_WIDTH, event.nativeEvent.layout.width - MIN_DIFF_WIDTH))}
     >
       {pane == null ? null : (
         // Above the diff: Monaco's margin otherwise covers half the resize handle.
@@ -102,13 +101,7 @@ export function Split({
           />
         </View>
       )}
-      <View
-        // Held at its width mid-drag: reflowing every editor on each pointer move lags the drag.
-        style={dragged == null || diffWidth == null ? { flex: 1 } : { width: diffWidth, flexShrink: 0 }}
-        onLayout={(event) => setDiffWidth(event.nativeEvent.layout.width)}
-      >
-        {children}
-      </View>
+      <View style={{ flex: 1 }}>{children}</View>
     </View>
   );
 }
