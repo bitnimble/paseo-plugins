@@ -18,6 +18,7 @@ import {
   commentRpc,
   diffRpc,
   generateRpc,
+  guideJobRpc,
   guideRpc,
   modeKey,
   setTrustRpc,
@@ -28,6 +29,7 @@ import {
 } from "../shared/protocol";
 import type { CommentStore } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
+import { usePackedRpc } from "./packed";
 
 const JOB_POLL_MS = 2_000;
 const STATE_WRITE = ["review-state-write"];
@@ -95,12 +97,13 @@ export function useReview(input: {
   const { workspaceId, directory, projectId, mode, revision } = input;
   const queryClient = useQueryClient();
   const toast = useToast();
-  const readDiff = useRpc(diffRpc);
-  const readGuide = useRpc(guideRpc);
+  const readDiff = usePackedRpc(diffRpc);
+  const readGuide = usePackedRpc(guideRpc);
+  const readGuideJob = useRpc(guideJobRpc);
   const startGeneration = useRpc(generateRpc);
-  const readState = useRpc(stateRpc);
-  const writeViewed = useRpc(viewedRpc);
-  const writeComment = useRpc(commentRpc);
+  const readState = usePackedRpc(stateRpc);
+  const writeViewed = usePackedRpc(viewedRpc);
+  const writeComment = usePackedRpc(commentRpc);
   const sendComments = useRpc(submitRpc);
   const readTrust = useRpc(trustRpc);
   const writeTrust = useRpc(setTrustRpc);
@@ -118,7 +121,14 @@ export function useReview(input: {
   });
   const guideQuery = useQuery({
     queryKey: guideKey,
-    queryFn: () => readGuide(target),
+    queryFn: async () => {
+      const known = queryClient.getQueryData<Awaited<ReturnType<typeof readGuide>>>(guideKey);
+      if (known?.job?.status !== "running") return readGuide(target);
+      const { job } = await readGuideJob(target);
+      return job?.status === "running" && job.startedAt === known.job.startedAt
+        ? { guide: known.guide, job }
+        : readGuide(target);
+    },
     enabled: directory != null,
     refetchInterval: (query) => (query.state.data?.job?.status === "running" ? JOB_POLL_MS : false),
   });

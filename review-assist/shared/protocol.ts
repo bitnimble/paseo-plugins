@@ -24,13 +24,30 @@ export type DiffBase = z.infer<typeof diffBaseSchema>;
 
 const target = { directory: z.string(), mode: diffModeSchema };
 
+const deflatedSchema = z.object({ deflated: z.string() }).strict();
+/** An output's JSON, raw-deflated and base64-encoded. */
+export type Deflated = z.infer<typeof deflatedSchema>;
+
+export function isDeflated(output: unknown): output is Deflated {
+  return deflatedSchema.safeParse(output).success;
+}
+
+/** Large outputs arrive `Deflated`; read them with `usePackedRpc`. */
+function definePackedRpc<Input extends z.ZodType, Output extends z.ZodType>(definition: {
+  name: string;
+  input: Input;
+  output: Output;
+}) {
+  return defineRpc({ ...definition, output: z.union([deflatedSchema, definition.output]) });
+}
+
 const fileFactsSchema = z.object({
   generated: z.record(z.string(), z.boolean()),
   sizes: z.record(z.string(), z.object({ before: z.number().int(), after: z.number().int() })),
   lfs: z.array(z.string()).readonly().default([]),
 }) satisfies z.ZodType<FileFacts>;
 
-export const diffRpc = defineRpc({
+export const diffRpc = definePackedRpc({
   name: "review.diff",
   input: z.object(target),
   output: z.discriminatedUnion("status", [
@@ -55,7 +72,7 @@ export const branchesRpc = defineRpc({
 });
 
 /** `tree` null reads from disk, inside the repository or wherever a language server pointed. */
-export const fileRpc = defineRpc({
+export const fileRpc = definePackedRpc({
   name: "review.file",
   input: z.object({ root: z.string(), tree: z.string().nullable(), path: z.string() }),
   output: z.discriminatedUnion("status", [
@@ -93,7 +110,7 @@ export const LSP_METHODS = ["textDocument/definition", "textDocument/references"
 export type LspMethod = (typeof LSP_METHODS)[number];
 
 /** `params` omits `textDocument`; the daemon fills it in from `path`. */
-export const lspRpc = defineRpc({
+export const lspRpc = definePackedRpc({
   name: "review.lsp",
   input: z.object({
     projectId: z.string(),
@@ -188,7 +205,7 @@ export const HIGHLIGHT_STYLES = [
 const lineTokensSchema = z.array(z.array(z.number().int()));
 export type LineTokens = z.infer<typeof lineTokensSchema>;
 
-export const highlightRpc = defineRpc({
+export const highlightRpc = definePackedRpc({
   name: "review.highlight",
   input: z.object({
     root: z.string(),
@@ -258,7 +275,7 @@ const mermaidDrawSchema = z.object({
 export type MermaidDraw = z.infer<typeof mermaidDrawSchema>;
 
 /** Draws `before` laid over `after`; SVG for the web, PNG where images can't be SVG. */
-export const mermaidRpc = defineRpc({
+export const mermaidRpc = definePackedRpc({
   name: "review.mermaid",
   input: mermaidDrawSchema,
   output: mermaidOutcomeSchema,
@@ -325,7 +342,7 @@ const markdownOutcomeSchema = z.discriminatedUnion("status", [
 export type MarkdownOutcome = z.infer<typeof markdownOutcomeSchema>;
 
 /** The document as `after` renders it, with what `before` had in its place. */
-export const markdownRpc = defineRpc({
+export const markdownRpc = definePackedRpc({
   name: "review.markdown",
   input: z.object({ before: z.string().max(MAX_MARKDOWN_CHARS), after: z.string().max(MAX_MARKDOWN_CHARS) }),
   output: markdownOutcomeSchema,
@@ -335,7 +352,7 @@ export const MONACO_ASSETS = ["script", "css", "worker"] as const;
 export type MonacoAsset = (typeof MONACO_ASSETS)[number];
 
 /** Read in pieces from `offset` until `total`, so no single message carries megabytes. */
-export const monacoRpc = defineRpc({
+export const monacoRpc = definePackedRpc({
   name: "review.monaco",
   input: z.object({ asset: z.enum(MONACO_ASSETS), offset: z.number().int().nonnegative() }),
   output: z.object({ text: z.string(), total: z.number().int() }),
@@ -360,10 +377,16 @@ export const guideRecordSchema = z.object({
 });
 export type GuideRecord = z.infer<typeof guideRecordSchema>;
 
-export const guideRpc = defineRpc({
+export const guideRpc = definePackedRpc({
   name: "review.guide",
   input: z.object(target),
   output: z.object({ job: jobSchema.nullable(), guide: guideRecordSchema.nullable() }),
+});
+
+export const guideJobRpc = defineRpc({
+  name: "review.guide-job",
+  input: z.object(target),
+  output: z.object({ job: jobSchema.nullable() }),
 });
 
 export const generateRpc = defineRpc({
@@ -406,19 +429,19 @@ export const reviewStateSchema = z.object({
 });
 export type ReviewState = z.infer<typeof reviewStateSchema>;
 
-export const stateRpc = defineRpc({
+export const stateRpc = definePackedRpc({
   name: "review.state",
   input: z.object(target),
   output: reviewStateSchema,
 });
 
-export const viewedRpc = defineRpc({
+export const viewedRpc = definePackedRpc({
   name: "review.viewed",
   input: z.object({ ...target, ...viewedMarkSchema.shape, viewed: z.boolean() }),
   output: reviewStateSchema,
 });
 
-export const commentRpc = defineRpc({
+export const commentRpc = definePackedRpc({
   name: "review.comment",
   input: z.object({
     ...target,

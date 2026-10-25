@@ -1,4 +1,4 @@
-import { parseDiff } from "../shared/diff";
+import { type ParsedDiff, parseDiff } from "../shared/diff";
 import { applyHunks } from "../shared/sides";
 import { hasObject, readBlob } from "./git";
 
@@ -6,6 +6,7 @@ interface KnownDiff {
   readonly root: string;
   readonly base: string;
   readonly raw: string;
+  parsed?: ParsedDiff;
 }
 
 const MAX_KNOWN_DIFFS = 16;
@@ -26,7 +27,8 @@ export class TreeFiles {
       // Nothing references a diff's tree, so git prunes it; history keeps the base.
       const known = this.diffs.get(tree);
       if (known?.root !== root || (await hasObject(root, tree))) throw error;
-      const file = parseDiff(known.raw).files.find((candidate) => candidate.newPath === path);
+      known.parsed ??= parseDiff(known.raw);
+      const file = known.parsed.files.find((candidate) => candidate.newPath === path);
       if (file == null) throw error;
       return applyHunks(file.oldPath == null ? "" : await readBlob(root, known.base, file.oldPath), file);
     }

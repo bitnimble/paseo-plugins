@@ -1,5 +1,4 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
@@ -35,6 +34,7 @@ import {
   inScope,
 } from "./comments";
 import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
+import { usePackedRpc } from "./packed";
 import type { FileText } from "./use-code";
 import { hasMouse } from "./web";
 
@@ -96,7 +96,7 @@ function useMarkdownDiff(
   before: string | null,
   after: string | null,
 ): { outcome: MarkdownOutcome | null; pending: boolean } {
-  const diff = useRpc(markdownRpc);
+  const diff = usePackedRpc(markdownRpc);
   const hashes = useMemo(() => [hashText(before ?? ""), hashText(after ?? "")], [before, after]);
   const query = useQuery({
     queryKey: ["review-markdown", ...hashes],

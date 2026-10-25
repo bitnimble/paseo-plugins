@@ -141,11 +141,11 @@ export async function readBlob(root: string, tree: string, path: string): Promis
   if (!OBJECT_ID.test(tree)) {
     throw new Error(`Not an object id: ${tree}`);
   }
-  const text = await git(root, ["cat-file", "blob", `${tree}:${path}`]);
-  if (text.length > MAX_BLOB_BYTES) {
+  const object = `${tree}:${path}`;
+  if (Number(await git(root, ["cat-file", "-s", object])) > MAX_BLOB_BYTES) {
     throw new Error(`${path} is larger than ${MAX_BLOB_BYTES} bytes`);
   }
-  return text;
+  return git(root, ["cat-file", "blob", object]);
 }
 
 export async function previewBlob(

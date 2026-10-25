@@ -87,6 +87,19 @@ test("a diff over budget is packed into parts in path order without splitting a 
   assert.equal(parts.join(""), one);
 });
 
+test("a file over budget is split between hunks, its header repeated in each part", () => {
+  const hunks = [10, 20, 30, 40].map((line) => `@@ -${line} +${line} @@\n-old ${line}\n+new ${line}\n`).join("");
+  const raw = `diff --git a/big.ts b/big.ts\nindex 1111111..2222222 100644\n--- a/big.ts\n+++ b/big.ts\n${hunks}${THREE_FILES}`;
+  const diff = parseDiff(raw);
+  const [one] = diffChunks(diff, PROMPT_BUDGET_CHARS);
+  const hunk = /^HUNK h0 [^]*?(?=^HUNK h1 )/m.exec(one)?.[0] ?? "";
+  const parts = diffChunks(diff, "FILE f0 big.ts (modified)\n".length + hunk.length * 3);
+  assert.deepEqual(
+    parts.map((part) => [...part.matchAll(/^(?:FILE f\d (\S+)|HUNK (h\d))/gm)].map((match) => match[1] ?? match[2])),
+    [["big.ts", "h0", "h1", "h2"], ["big.ts", "h3", "a.ts", "h4"], ["b.ts", "h5", "c.ts", "h6"]],
+  );
+});
+
 test("a diff over budget runs one agent per part, then merges and orders their sections", async () => {
   const prompts: string[] = [];
   let archived = 0;

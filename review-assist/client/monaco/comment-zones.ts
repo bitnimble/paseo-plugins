@@ -44,7 +44,8 @@ export class CommentZones {
         suppressMouseDown: true,
         // A comment on a line folded into "N hidden lines" would otherwise never be drawn.
         showInHiddenAreas: true,
-        onDomNodeTop: (top) => this.onTop(spec.key, top),
+        // Monaco passes the top within the scrolled viewport.
+        onDomNodeTop: (top) => this.onTop(spec.key, top + spec.editor.getScrollTop()),
       };
       spec.editor.changeViewZones((zones) => {
         this.placed.set(spec.key, { spec, id: zones.addZone(zone), zone });

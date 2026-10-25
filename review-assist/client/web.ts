@@ -70,6 +70,7 @@ const EXTRA_CSS = `
 .review-scope-first { border-top-width: 1px; }
 .review-scope-last { border-bottom-width: 1px; }
 .review-resizing, .review-resizing * { user-select: none !important; cursor: col-resize !important; }
+[data-reviewcards] { overflow: clip !important; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
 `;

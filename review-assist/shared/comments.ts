@@ -5,6 +5,7 @@ import { type SideLine, rangeHeader } from "./sides";
 export type CommentTarget = Omit<DraftComment, "id" | "body" | "createdAt" | "suggestion">;
 
 const CONTEXT_LINES = 3;
+const MAX_CONTEXT_LINES = 1000;
 
 /** Lines `start` to `end` of `lines`, anchored on the last one as Paseo's Changes panel anchors. */
 export function commentTarget(
@@ -20,7 +21,7 @@ export function commentTarget(
   const lineNumber = numberOf(target);
   if (lineNumber == null) return null;
   const first = lines.slice(start, end + 1).find((line) => numberOf(line) != null);
-  const around = lines.slice(Math.max(0, start - CONTEXT_LINES), end + CONTEXT_LINES + 1);
+  const around = lines.slice(Math.max(0, start - CONTEXT_LINES, end + 1 - MAX_CONTEXT_LINES), end + CONTEXT_LINES + 1);
   const hunk = file.hunks.find((candidate) => candidate.lines.some((line) => numberOf(line) === lineNumber));
   return {
     filePath: file.path,

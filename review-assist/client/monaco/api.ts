@@ -92,8 +92,10 @@ export interface DecorationsCollection {
 export interface CodeEditor {
   setModel(model: MonacoModel | null): void;
   getContentHeight(): number;
+  getScrollTop(): number;
   getSelection(): MonacoRange | null;
   onDidContentSizeChange(listener: () => void): IDisposable;
+  onDidScrollChange(listener: (event: { scrollTop: number }) => void): IDisposable;
   onMouseMove(listener: (event: EditorMouseEvent) => void): IDisposable;
   onMouseLeave(listener: () => void): IDisposable;
   onMouseDown(listener: (event: EditorMouseEvent) => void): IDisposable;

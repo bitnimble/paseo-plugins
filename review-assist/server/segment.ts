@@ -99,18 +99,34 @@ export function parseProposal(text: string): Proposal {
   return proposalSchema.parse(jsonObjectIn(text));
 }
 
-/** Parts stay within `budget` characters, except a file over it on its own: no file is split. */
+/**
+ * Parts stay about within `budget` characters: a file over it is split between hunks, its header
+ * repeated in each part, and a hunk over it gets a part of its own.
+ */
 export function diffChunks(diff: ParsedDiff, budget: number): string[] {
   const chunks: string[] = [];
   let current = "";
   for (const file of diff.files) {
     if (file.generated) continue;
-    const text = renderFile(file);
-    if (current !== "" && current.length + text.length > budget) {
+    const header = fileHeader(file);
+    const hunks = file.hunks.map(renderHunk);
+    const length = hunks.reduce((sum, hunk) => sum + hunk.length, header.length);
+    if (current !== "" && current.length + length > budget) {
       chunks.push(current);
       current = "";
     }
-    current += text;
+    if (length <= budget) {
+      current += header + hunks.join("");
+      continue;
+    }
+    current = header;
+    for (const hunk of hunks) {
+      if (current !== header && current.length + hunk.length > budget) {
+        chunks.push(current);
+        current = header;
+      }
+      current += hunk;
+    }
   }
   if (current !== "") chunks.push(current);
   return chunks;
@@ -255,14 +271,14 @@ function jsonObjectIn(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function renderFile(file: DiffFile): string {
+function fileHeader(file: DiffFile): string {
   const moved = file.oldPath != null && file.oldPath !== file.path ? ` from ${file.oldPath}` : "";
   const content = file.hunks.length === 0 ? ", no line changes" : file.binary ? ", binary" : "";
-  const lines = [`FILE f${file.index} ${file.path} (${file.status}${moved}${content})`];
-  for (const hunk of file.hunks) {
-    lines.push(`HUNK ${hunk.id} lines 0-${hunk.lines.length - 1} ${hunk.header}`, ...numberedLines(hunk));
-  }
-  return `${lines.join("\n")}\n`;
+  return `FILE f${file.index} ${file.path} (${file.status}${moved}${content})\n`;
+}
+
+function renderHunk(hunk: DiffHunk): string {
+  return `${[`HUNK ${hunk.id} lines 0-${hunk.lines.length - 1} ${hunk.header}`, ...numberedLines(hunk)].join("\n")}\n`;
 }
 
 function numberedLines(hunk: DiffHunk): string[] {

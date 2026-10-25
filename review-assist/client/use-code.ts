@@ -7,6 +7,7 @@ import { messageOf } from "../shared/errors";
 import { fileRpc, highlightRpc, leaseRpc, lspRpc, monacoRpc, paletteRpc } from "../shared/protocol";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
+import { usePackedRpc } from "./packed";
 import { isDark, legibleSyntax } from "./palette";
 import type { FileSyntax } from "./syntax";
 import { isMonacoSupported } from "./web";
@@ -21,7 +22,7 @@ export type FileText =
 
 /** The file as the whole diff leaves it. */
 export function useFileText(source: CodeSource, file: DiffFile, enabled: boolean): FileText {
-  const read = useRpc(fileRpc);
+  const read = usePackedRpc(fileRpc);
   const query = useQuery({
     // By content where the diff names it, so a refresh that leaves the file alone reads nothing.
     queryKey: ["review-file", source.root, file.newBlob ?? source.tree, file.newPath],
@@ -39,7 +40,7 @@ export function useFileText(source: CodeSource, file: DiffFile, enabled: boolean
 }
 
 export function useSyntax(source: CodeSource, file: DiffFile, enabled: boolean): FileSyntax | null {
-  const highlight = useRpc(highlightRpc);
+  const highlight = usePackedRpc(highlightRpc);
   const query = useQuery({
     queryKey: ["review-syntax", source.root, file.newBlob ?? source.tree, source.base, file.oldPath, file.newPath],
     queryFn: () =>
@@ -64,10 +65,10 @@ export function usePalette(theme: PluginTheme): SyntaxPalette | null {
 
 /** Connects Monaco to the daemon and starts loading it; `features` adds language features for its root's files. */
 export function useCodeIntelligence(features: { projectId: string; root: string } | null): void {
-  const read = useRpc(fileRpc);
-  const lsp = useRpc(lspRpc);
+  const read = usePackedRpc(fileRpc);
+  const lsp = usePackedRpc(lspRpc);
   const lease = useRpc(leaseRpc);
-  const monaco = useRpc(monacoRpc);
+  const monaco = usePackedRpc(monacoRpc);
 
   useEffect(() => {
     reviewMonaco.connect({

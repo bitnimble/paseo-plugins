@@ -6,6 +6,7 @@ import { LanguageServers } from "./server/lsp/pool";
 import { markdownDiff } from "./server/markdown";
 import { MermaidRenderer } from "./server/mermaid/renderer";
 import { monacoChunk } from "./server/monaco-assets";
+import { packed } from "./server/packed";
 import { ReviewStates } from "./server/review-state";
 import { cacheDirectory } from "./server/slots";
 import { GuideStore } from "./server/store";
@@ -21,6 +22,7 @@ import {
   diffRpc,
   fileRpc,
   generateRpc,
+  guideJobRpc,
   guideRpc,
   highlightRpc,
   leaseRpc,
@@ -65,34 +67,39 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const failed = (error: unknown) => ({ status: "failed" as const, error: messageOf(error) });
 
   server.handle(diffRpc, ({ directory, mode }) =>
-    readDiff(directory, mode).then((snapshot) => {
-      roots.add(snapshot.root);
-      trees.remember(snapshot);
-      return { status: "ready" as const, ...snapshot };
-    }, failed),
+    readDiff(directory, mode)
+      .then((snapshot) => {
+        roots.add(snapshot.root);
+        trees.remember(snapshot);
+        return { status: "ready" as const, ...snapshot };
+      }, failed)
+      .then(packed),
   );
   server.handle(branchesRpc, ({ directory }) => listBranches(directory));
   server.handle(guideRpc, async (input) => {
     const state = await store.read(input);
     if (state.guide != null) trees.remember(state.guide);
-    return state;
+    return packed(state);
   });
+  server.handle(guideJobRpc, (input) => ({ job: store.job(input) }));
   server.handle(generateRpc, (input, { paseo }) => ({ job: store.generate(input, paseo) }));
-  server.handle(stateRpc, (input) => states.read(input));
+  server.handle(stateRpc, (input) => states.read(input).then(packed));
   server.handle(viewedRpc, ({ path, fingerprint, viewed, ...target }) =>
-    states.setViewed(target, { path, fingerprint }, viewed),
+    states.setViewed(target, { path, fingerprint }, viewed).then(packed),
   );
   server.handle(commentRpc, ({ change, ...target }) =>
-    change.action === "save" ? states.saveComment(target, change.comment) : states.deleteComments(target, [change.id]),
+    (change.action === "save"
+      ? states.saveComment(target, change.comment)
+      : states.deleteComments(target, [change.id])
+    ).then(packed),
   );
   server.handle(agentsRpc, async ({ workspaceId }, { paseo }) => ({ agents: await workspaceAgents(paseo, workspaceId) }));
   server.handle(submitRpc, (input, { paseo }) => submitReview(paseo, states, input));
   server.handle(fileRpc, async ({ root, tree, path }) => {
     if (!(await admit(root))) return unknownRoot(root);
-    return (tree == null ? languageServers.readFile(root, path) : trees.read(root, tree, path)).then(
-      (text) => ({ status: "ready" as const, text }),
-      failed,
-    );
+    return (tree == null ? languageServers.readFile(root, path) : trees.read(root, tree, path))
+      .then((text) => ({ status: "ready" as const, text }), failed)
+      .then(packed);
   });
   server.handle(blobRpc, async ({ root, tree, path, blob, lfs }) => {
     if (!(await admit(root))) return unknownRoot(root);
@@ -100,12 +107,12 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   });
   server.handle(highlightRpc, async (input) => {
     if (!(await admit(input.root))) return unknownRoot(input.root);
-    return highlightSides(trees, input).catch(failed);
+    return highlightSides(trees, input).catch(failed).then(packed);
   });
   server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
-  server.handle(monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
-  server.handle(mermaidRpc, (input) => mermaid.draw(input));
-  server.handle(markdownRpc, ({ before, after }) => markdownDiff(before, after));
+  server.handle(monacoRpc, async ({ asset, offset }) => packed(await monacoChunk(asset, offset)));
+  server.handle(mermaidRpc, async (input) => packed(await mermaid.draw(input)));
+  server.handle(markdownRpc, async ({ before, after }) => packed(await markdownDiff(before, after)));
   server.handle(updateStatusRpc, () => updates.status());
   server.handle(updateRpc, () => {
     updates.install();
@@ -126,7 +133,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     if (!(await admit(input.root))) return unknownRoot(input.root);
     if (!(await trust.allows(projectId))) return untrusted;
     projectOfServedRoot.set(input.root, projectId);
-    return languageServers.request(input);
+    return packed(await languageServers.request(input));
   });
   server.handle(leaseRpc, async ({ projectId, root, leaseId, action }) => {
     if (action === "release") {

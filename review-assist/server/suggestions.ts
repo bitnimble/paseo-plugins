@@ -41,7 +41,7 @@ export async function applySuggestions(root: string, comments: readonly DraftCom
 /** `text` with each comment's lines replaced by its suggestion; throws if any lines differ from the original. */
 export function applyEdits(text: string, comments: readonly DraftComment[]): string {
   // Diff text keeps a CRLF file's "\r"s, and the composer drops them; compare and write without, then restore.
-  const lines = text.split("\n");
+  let lines = text.split("\n");
   const bare = (line: string) => (line.endsWith("\r") ? line.slice(0, -1) : line);
   const lineCount = text === "" ? 0 : text.endsWith("\n") ? lines.length - 1 : lines.length;
   const edits = [...comments].sort((a, b) => b.startLine - a.startLine);
@@ -60,7 +60,7 @@ export function applyEdits(text: string, comments: readonly DraftComment[]): str
     const replaced = replacementLines(edit);
     const lastEnding = lines[edit.lineNumber - 1].endsWith("\r") ? "\r" : "";
     const ended = replaced.map((line, i) => line + (i === replaced.length - 1 ? lastEnding : crlf ? "\r" : ""));
-    lines.splice(edit.startLine - 1, edit.lineNumber - edit.startLine + 1, ...ended);
+    lines = lines.slice(0, edit.startLine - 1).concat(ended, lines.slice(edit.lineNumber));
   }
   return lines.join("\n");
 }

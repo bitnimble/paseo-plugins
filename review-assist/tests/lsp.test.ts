@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { readDiff } from "../server/git";
 import { UNCOMMITTED_MODE } from "../shared/protocol";
+import { decodeMessages, encodeMessage } from "../server/lsp/framing";
 import { LanguageServers } from "../server/lsp/pool";
+import { LspSession } from "../server/lsp/session";
 import { TreeFiles } from "../server/trees";
 import { freshRepo, gitIn, removeScratch, scratchDirectory, writeIn } from "./repo";
 
@@ -57,6 +59,55 @@ test("a symlink out of the repository is not readable", async () => {
   writeFileSync(outside, "export const secret = 1;\n");
   symlinkSync(outside, join(repo, "escape.ts"));
   await assert.rejects(servers.readFile(repo, "escape.ts"), /resolves outside the repository/);
+});
+
+const ECHO_SERVER = `
+let buffer = Buffer.alloc(0);
+process.stdin.on("data", (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  for (;;) {
+    const end = buffer.indexOf("\\r\\n\\r\\n");
+    if (end < 0) return;
+    const length = Number(/Content-Length: (\\d+)/.exec(buffer.subarray(0, end).toString())[1]);
+    if (buffer.length < end + 4 + length) return;
+    const message = JSON.parse(buffer.subarray(end + 4, end + 4 + length).toString());
+    buffer = buffer.subarray(end + 4 + length);
+    if (message.id == null) continue;
+    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: message.params ?? {} }));
+    const out = Buffer.concat([Buffer.from("Content-Length: " + body.length + "\\r\\n\\r\\n"), body]);
+    for (let i = 0; i < out.length; i += 1000) process.stdout.write(out.subarray(i, i + 1000));
+  }
+});
+`;
+
+test("messages decode once whole, however the bytes are split", () => {
+  const first = encodeMessage({ id: 1, text: "é".repeat(5) });
+  const second = encodeMessage({ id: 2 });
+  const both = Buffer.concat([first, second]);
+  assert.deepEqual(decodeMessages(both).bodies.map((body) => JSON.parse(body).id), [1, 2]);
+
+  const headerEnd = first.indexOf("\r\n\r\n") + 4;
+  assert.deepEqual(decodeMessages(first.subarray(0, 10)), { bodies: [], rest: first.subarray(0, 10), needed: 0 });
+  const partial = decodeMessages(first.subarray(0, headerEnd + 3));
+  assert.deepEqual([partial.bodies, partial.needed], [[], first.byteLength]);
+
+  const midCharacter = headerEnd + 15;
+  const rest = decodeMessages(first.subarray(0, midCharacter)).rest;
+  const whole = decodeMessages(Buffer.concat([rest, first.subarray(midCharacter)]));
+  assert.deepEqual(JSON.parse(whole.bodies[0]), { id: 1, text: "ééééé" });
+  assert.deepEqual([whole.rest.byteLength, whole.needed], [0, 0]);
+});
+
+test("a response spread over many chunks arrives whole", async () => {
+  const session = await LspSession.start([process.execPath, "-e", ECHO_SERVER], repo);
+  try {
+    const big = "é".repeat(500_000);
+    const [first, second] = await Promise.all([session.request("echo", [big]), session.request("echo", ["small"])]);
+    assert.deepEqual(first, [big]);
+    assert.deepEqual(second, ["small"]);
+  } finally {
+    await session.dispose();
+  }
 });
 
 test("files without a language server are unsupported", async () => {

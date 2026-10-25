@@ -1,7 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, type FlatList as NativeFlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  type FlatList as NativeFlatList,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
 import { type Span, type SplitRow, splitRows, wordChanges } from "../shared/display";
@@ -11,11 +20,14 @@ import type { ViewOptions } from "../shared/settings";
 import {
   CAPPED_CHANGES,
   CONTEXT_LINES,
+  MORE_CHANGES_STEP,
   type ShownHunk,
   type SideLine,
   blockHunks,
+  changesThrough,
   hunksOf,
   rangeHeader,
+  shownChangeCount,
   takeChanges,
   wholeFileLines,
 } from "../shared/sides";
@@ -35,7 +47,7 @@ import {
   scopeEdges,
 } from "./comments";
 import { BinaryBody, LfsBody } from "./binary-view";
-import { ChangeStats, FileLabel, ShowFullDiff, Tabs } from "./controls";
+import { ChangeStats, FileLabel, ShowMoreChanges, Tabs } from "./controls";
 import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard";
 import { MarkdownBody } from "./markdown-view";
 import { MermaidBody } from "./mermaid-view";
@@ -48,6 +60,7 @@ import { type ColoredText, type FileSyntax, lineTokens } from "./syntax";
 import { useFileText, usePalette, useSyntax } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
 import { isMonacoSupported } from "./web";
+import { type WindowedRow, WindowedRows } from "./windowed-rows";
 
 const COLLAPSE_OVER_CHANGES = 800;
 const MAX_SCROLL_ATTEMPTS = 60;
@@ -124,7 +137,7 @@ export function DiffList(props: DiffListProps) {
   const attempts = useRef(0);
   const retry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [folding, setFolding] = useState<Folding>(() => ({ base: fold?.collapsed ?? null, overrides: new Map() }));
-  const [shownInFull, setShownInFull] = useState<ReadonlySet<string>>(new Set());
+  const [changeLimits, setChangeLimits] = useState<ReadonlyMap<string, number>>(new Map());
   const styles = useMemo(() => createStyles(theme), [theme]);
   const palette = usePalette(theme);
   const [overflowHost, setOverflowHost] = useState<object | null>(null);
@@ -134,6 +147,9 @@ export function DiffList(props: DiffListProps) {
   const latest = useRef({ props, draft, bottomInset });
   latest.current = { props, draft, bottomInset };
   const frame = useRef<View>(null);
+  const screen = useWindowDimensions();
+  const [frameHeight, setFrameHeight] = useState<number | null>(null);
+  const editorHeight = frameHeight ?? screen.height;
   const scrollY = useRef(0);
   const pendingScroll = useRef<number | null>(null);
   const scrollToPending = useCallback(() => {
@@ -167,7 +183,10 @@ export function DiffList(props: DiffListProps) {
     setFolding(({ base, overrides }) => ({ base, overrides: new Map(overrides).set(key, collapsed) }));
   }, []);
 
-  const showFull = useCallback((key: string) => setShownInFull((keys) => new Set(keys).add(key)), []);
+  const showMore = useCallback(
+    (key: string, shown: number) => setChangeLimits((limits) => new Map(limits).set(key, shown + MORE_CHANGES_STEP)),
+    [],
+  );
   const [visualViews, setVisualViews] = useState<ReadonlyMap<string, VisualView>>(new Map());
   const [scrollLocked, setScrollLocked] = useState(false);
   const setVisualView = useCallback(
@@ -222,8 +241,8 @@ export function DiffList(props: DiffListProps) {
     return byFile;
   }, [props.comments.comments]);
   const extraData = useMemo(
-    () => [folding, shownInFull, visualViews, viewed, commentsByFile, draft, palette],
-    [folding, shownInFull, visualViews, viewed, commentsByFile, draft, palette],
+    () => [folding, changeLimits, visualViews, viewed, commentsByFile, draft, palette, editorHeight],
+    [folding, changeLimits, visualViews, viewed, commentsByFile, draft, palette, editorHeight],
   );
 
   useEffect(() => {
@@ -240,7 +259,7 @@ export function DiffList(props: DiffListProps) {
   }, [target, blocks.length]);
 
   return (
-    <View ref={frame} style={styles.list}>
+    <View ref={frame} style={styles.list} onLayout={(event) => setFrameHeight(event.nativeEvent.layout.height)}>
       <ScrollLock.Provider value={setScrollLocked}>
         <CentreAboveKeyboard.Provider value={centreAboveKeyboard}>
           <FlatList
@@ -288,9 +307,9 @@ export function DiffList(props: DiffListProps) {
                   source={source}
                   overflowHost={overflowHost}
                   collapsed={collapsed}
-                  // A cut could hide comments on the lines past it. Not drafts: they hold the cut sides' lines.
-                  capped={fileComments.length === 0 && !shownInFull.has(foldKey)}
-                  onShowFull={showFull}
+                  changeLimit={changeLimits.get(foldKey) ?? CAPPED_CHANGES}
+                  onShowMore={showMore}
+                  maxHeight={editorHeight}
                   visual={visualViews.get(foldKey) ?? defaultVisualView(item.file)}
                   onVisual={setVisualView}
                   viewed={isViewed}
@@ -337,14 +356,22 @@ function collapsedByDefault(block: FileBlock): boolean {
   return block.file.generated || blockChanges(block) > COLLAPSE_OVER_CHANGES;
 }
 
+function onCommentedLine(comments: readonly DraftComment[]): (line: DiffLine) => boolean {
+  const lines = { old: new Set<number>(), new: new Set<number>() };
+  for (const comment of comments) lines[comment.side].add(comment.lineNumber);
+  return (line) =>
+    (line.oldNumber != null && lines.old.has(line.oldNumber)) || (line.newNumber != null && lines.new.has(line.newNumber));
+}
+
 interface FileBlockViewProps {
   readonly block: FileBlock;
   readonly foldKey: string;
   readonly source: CodeSource;
   readonly overflowHost: object | null;
   readonly collapsed: boolean;
-  readonly capped: boolean;
-  readonly onShowFull: (foldKey: string) => void;
+  readonly changeLimit: number;
+  readonly onShowMore: (foldKey: string, shown: number) => void;
+  readonly maxHeight: number;
   /** Null for files without a rendered diff. */
   readonly visual: VisualView | null;
   readonly onVisual: (foldKey: string, visual: VisualView) => void;
@@ -367,8 +394,9 @@ const FileBlockView = memo(function FileBlockView({
   source,
   overflowHost,
   collapsed,
-  capped,
-  onShowFull,
+  changeLimit,
+  onShowMore,
+  maxHeight,
   visual,
   onVisual,
   viewed,
@@ -405,12 +433,23 @@ const FileBlockView = memo(function FileBlockView({
   );
   const onlyWhitespace = useMemo(
     () =>
+      !collapsed &&
       view.hideWhitespace &&
       block.chunks.some(({ hunk, start, end }) => hunk.lines.slice(start, end).some(isChange)) &&
       blockHunks(block, true).length === 0,
-    [block, view.hideWhitespace],
+    [block, view.hideWhitespace, collapsed],
   );
-  const showFull = useMemo(() => (capped ? () => onShowFull(foldKey) : null), [capped, onShowFull, foldKey]);
+  const commentReach = useMemo(
+    () => (collapsed || comments.length === 0 ? 0 : changesThrough(block, view.hideWhitespace, onCommentedLine(comments))),
+    [block, view.hideWhitespace, collapsed, comments],
+  );
+  const limit = Math.max(changeLimit, commentReach);
+  const shownChanges = useMemo(
+    () => (collapsed ? 0 : shownChangeCount(block, view.hideWhitespace)),
+    [block, view.hideWhitespace, collapsed],
+  );
+  const hidden = Math.max(0, shownChanges - limit);
+  const showMore = useCallback(() => onShowMore(foldKey, limit), [onShowMore, foldKey, limit]);
   const nativeBody = (
     <NativeBody
       block={block}
@@ -420,7 +459,10 @@ const FileBlockView = memo(function FileBlockView({
       theme={theme}
       palette={palette}
       comments={fileComments}
-      onShowFull={showFull}
+      changeLimit={limit}
+      onShowMore={showMore}
+      hidden={hidden}
+      maxHeight={maxHeight}
       text={matched?.block === block ? matched.text : null}
     />
   );
@@ -525,7 +567,10 @@ const FileBlockView = memo(function FileBlockView({
         palette={palette}
         overflowHost={overflowHost}
         comments={fileComments}
-        onShowFull={showFull}
+        changeLimit={limit}
+        onShowMore={showMore}
+        hidden={hidden}
+        maxHeight={maxHeight}
         fallback={nativeBody}
       />
     );
@@ -540,7 +585,10 @@ function NativeBody({
   theme,
   palette,
   comments,
-  onShowFull,
+  changeLimit,
+  onShowMore,
+  hidden,
+  maxHeight,
   text,
 }: {
   block: FileBlock;
@@ -550,7 +598,10 @@ function NativeBody({
   theme: PluginTheme;
   palette: SyntaxPalette | null;
   comments: FileComments;
-  onShowFull: (() => void) | null;
+  changeLimit: number;
+  onShowMore(): void;
+  hidden: number;
+  maxHeight: number;
   /** The file as the diff leaves it, once known, to show the lines around the changes. */
   text: string | null;
 }) {
@@ -565,10 +616,7 @@ function NativeBody({
     [block, view.hideWhitespace, whole, ranges],
   );
   const reveal = (range: Range) => setRevealed({ of: whole, ranges: [...ranges, range] });
-  const shown = useMemo(
-    () => (onShowFull == null ? { hunks, cut: false } : firstChanges(hunks, CAPPED_CHANGES)),
-    [hunks, onShowFull],
-  );
+  const shown = useMemo(() => firstChanges(hunks, changeLimit), [hunks, changeLimit]);
   const marks = useMemo(() => shown.hunks.map((hunk) => wordChanges(hunk.lines)), [shown]);
   const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary && !block.file.lfs);
   const cards = fileCards(comments);
@@ -593,30 +641,52 @@ function NativeBody({
   );
   const gutter = gutterWidth(block.file);
   const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot };
-  const gap = (from: number, to: number) => (
-    <GapRow
-      key={`gap:${from}`}
-      from={from}
-      to={to}
-      total={whole?.length ?? 0}
-      gutter={gutter}
-      theme={theme}
-      styles={styles}
-      onReveal={reveal}
-    />
-  );
+  const gap = (from: number, to: number): WindowedRow[] =>
+    to <= from
+      ? []
+      : [
+          {
+            key: `gap:${from}`,
+            pinned: false,
+            render: () => (
+              <GapRow
+                from={from}
+                to={to}
+                total={whole?.length ?? 0}
+                gutter={gutter}
+                theme={theme}
+                styles={styles}
+                onReveal={reveal}
+              />
+            ),
+          },
+        ];
   const last = shown.hunks[shown.hunks.length - 1];
-  const body = [
+  const body: WindowedRow[] = [
     ...shown.hunks.flatMap((hunk, i) => [
-      whole == null || hunk.start == null ? (
-        <MutedRow key={`header:${i}`} text={hunk.header} gutter={gutter} styles={styles} />
-      ) : (
-        gap(shown.hunks[i - 1]?.end ?? 0, hunk.start)
-      ),
+      ...(whole == null || hunk.start == null
+        ? [
+            {
+              key: `header:${i}`,
+              pinned: false,
+              render: () => <MutedRow text={hunk.header} gutter={gutter} styles={styles} />,
+            },
+          ]
+        : gap(shown.hunks[i - 1]?.end ?? 0, hunk.start)),
       ...hunkRows(hunk, marks[i], rows),
     ]),
-    whole == null || shown.cut || last?.end == null ? null : gap(last.end, whole.length),
+    ...(whole == null || shown.cut || last?.end == null ? [] : gap(last.end, whole.length)),
   ];
+  const windowed = (
+    <WindowedRows
+      key={`${sideways}:${view.hideWhitespace}`}
+      rows={body}
+      estimate={CODE_LINE_HEIGHT}
+      maxHeight={maxHeight}
+      sideways={sideways}
+      minWidth={visibleWidth ?? 0}
+    />
+  );
   return (
     <>
       <View>
@@ -624,18 +694,17 @@ function NativeBody({
           <AnimatedScrollView
             horizontal
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.sideways}
             onLayout={(event) => setVisibleWidth(event.nativeEvent.layout.width)}
             onScroll={onScrollX}
             scrollEventThrottle={16}
           >
-            <View style={styles.sidewaysColumn}>{body}</View>
+            {windowed}
           </AnimatedScrollView>
         ) : (
-          body
+          windowed
         )}
-        {shown.cut && onShowFull != null ? (
-          <ShowFullDiff theme={theme} lines={blockChanges(block)} onPress={onShowFull} />
+        {shown.cut ? (
+          <ShowMoreChanges theme={theme} hidden={hidden} onPress={onShowMore} />
         ) : null}
       </View>
       <UnplacedCards theme={theme} block={block} cards={unplaced} comments={comments} />
@@ -734,17 +803,21 @@ function hunkRows(
   hunk: ShownHunk,
   marks: ReadonlyMap<DiffLine, readonly Span[]>,
   { file, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps,
-): ReactNode[] {
+): WindowedRow[] {
   const { lines } = hunk;
   const scope = draftScope(file, comments.draft, [lines]);
   const positions = new Map(lines.map((line, i) => [line, i]));
   const indexOf = (line: DiffLine) => positions.get(line) ?? -1;
-  const cardsByLine = new Map<number, ReactNode[]>();
+  const cardsByLine = new Map<number, Card[]>();
   for (const card of cards) {
     const index = cardLine(card, lines);
-    if (index >= 0) cardsByLine.set(index, [...(cardsByLine.get(index) ?? []), slot(card)]);
+    if (index < 0) continue;
+    const here = cardsByLine.get(index);
+    if (here == null) cardsByLine.set(index, [card]);
+    else here.push(card);
   }
   const cardsAt = (index: number) => cardsByLine.get(index) ?? [];
+  const holdsDraft = (indexes: readonly number[]) => indexes.some((index) => cardsAt(index).some((card) => "kind" in card));
   const gutterFor = (line: DiffLine) => {
     const index = indexOf(line);
     return {
@@ -757,29 +830,37 @@ function hunkRows(
     line != null && scope?.side === side && inScope(scope, line);
   return view.layout === "split" ? splitBody() : unifiedBody();
 
-  function splitBody(): ReactNode[] {
+  function splitBody(): WindowedRow[] {
     const rows = splitRows(lines);
     const oldEdges = scopeEdges(rows, (row) => covers(row.left, "old"));
     const newEdges = scopeEdges(rows, (row) => covers(row.right, "new"));
     return rows.map((row, i) => {
-      const indexes = new Set([row.left, row.right].flatMap((line) => (line == null ? [] : [indexOf(line)])));
-      return (
-        <View key={`${lineKey(row.left)}|${lineKey(row.right)}`}>
-          <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
-          {[...indexes].flatMap(cardsAt)}
-        </View>
-      );
+      const indexes = [...new Set([row.left, row.right].flatMap((line) => (line == null ? [] : [indexOf(line)])))];
+      return {
+        key: `${lineKey(row.left)}|${lineKey(row.right)}`,
+        pinned: holdsDraft(indexes),
+        render: () => (
+          <>
+            <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
+            {indexes.flatMap(cardsAt).map(slot)}
+          </>
+        ),
+      };
     });
   }
 
-  function unifiedBody(): ReactNode[] {
+  function unifiedBody(): WindowedRow[] {
     const edges = scopeEdges(lines, (line) => scope != null && inScope(scope, line));
-    return lines.map((line, i) => (
-      <View key={lineKey(line)}>
-        <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
-        {cardsAt(i)}
-      </View>
-    ));
+    return lines.map((line, i) => ({
+      key: lineKey(line),
+      pinned: holdsDraft([i]),
+      render: () => (
+        <>
+          <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
+          {cardsAt(i).map(slot)}
+        </>
+      ),
+    }));
   }
 }
 
@@ -1044,8 +1125,6 @@ function createStyles(theme: PluginTheme) {
     },
     viewedLabel: { fontSize: 12, color: colors.foregroundMuted },
     body: { borderBottomWidth: 1, borderBottomColor: colors.border },
-    sideways: { minWidth: "100%" },
-    sidewaysColumn: { flexGrow: 1 },
     row,
     addRow: { ...row, backgroundColor: tint(colors.statusSuccess, alpha.addLine) },
     delRow: { ...row, backgroundColor: tint(colors.statusDanger, alpha.delLine) },

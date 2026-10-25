@@ -3,6 +3,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
+import { MORE_CHANGES_STEP } from "../shared/sides";
 import { changeIcon, compactCount, formatBytes, statusTint, tint } from "./palette";
 
 export function Tabs<Value extends string>({
@@ -263,22 +264,15 @@ export function Notice({
   );
 }
 
-/** Overlays the bottom of its parent. */
-export function ShowFullDiff({ theme, lines, onPress }: { theme: PluginTheme; lines: number; onPress(): void }) {
+export function ShowMoreChanges({ theme, hidden, onPress }: { theme: PluginTheme; hidden: number; onPress(): void }) {
   return (
     <View
-      pointerEvents="box-none"
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        height: 140,
         alignItems: "center",
-        justifyContent: "flex-end",
-        // Clears the editor's blank last line and scrollbar, so the button sits on the faded code.
-        paddingBottom: 36,
-        boxShadow: `inset 0 -120px 80px -40px ${theme.colors.surface0}`,
+        paddingVertical: 4,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.border,
+        backgroundColor: theme.colors.surface1,
       }}
     >
       <Button
@@ -286,7 +280,11 @@ export function ShowFullDiff({ theme, lines, onPress }: { theme: PluginTheme; li
         size="xs"
         variant="ghost"
         icon="ChevronsUpDown"
-        label={`Show full diff (${lines.toLocaleString()} lines)`}
+        label={
+          hidden > MORE_CHANGES_STEP
+            ? `Show ${MORE_CHANGES_STEP.toLocaleString()} more lines (${hidden.toLocaleString()} hidden)`
+            : `Show full diff (${hidden.toLocaleString()} more lines)`
+        }
         onPress={onPress}
       />
     </View>

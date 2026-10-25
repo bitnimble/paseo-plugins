@@ -1,5 +1,4 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useRpc } from "@getpaseo/plugin/client";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useMemo } from "react";
 import { Platform, Text, type TextStyle, View } from "react-native";
@@ -14,6 +13,7 @@ import {
 } from "../shared/protocol";
 import { blockSides } from "../shared/sides";
 import { IconButton } from "./controls";
+import { usePackedRpc } from "./packed";
 import { hexColor, isDark } from "./palette";
 import type { FileText } from "./use-code";
 import { ZoomableImage } from "./zoomable-image";
@@ -88,7 +88,7 @@ function useMermaidDiff(
   distance: number,
   theme: PluginTheme,
 ): { outcome: MermaidOutcome | null; pending: boolean } {
-  const draw = useRpc(mermaidRpc);
+  const draw = usePackedRpc(mermaidRpc);
   const palette = useMemo((): MermaidPalette => {
     const { colors } = theme;
     return {

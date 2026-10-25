@@ -42,6 +42,16 @@ test("only new-side lines all in the comment's context can take a suggestion", (
   assert.equal(suggestible({ ...added, context: { ...added.context, lines: [] } }), null);
 });
 
+test("a comment over a huge range keeps its range but carries only the lines nearest its anchor", () => {
+  const lines = Array.from({ length: 50_000 }, (_, i) => ({ text: `l${i + 1}`, oldNumber: i + 1, newNumber: i + 1 }));
+  const target = commentTarget(block.file, lines, 0, lines.length - 1);
+  assert.ok(target != null);
+  assert.deepEqual([target.startLine, target.lineNumber], [1, 50_000]);
+  assert.equal(target.context.lines.length, 1000);
+  assert.equal(target.context.lines.at(-1)?.content, "l50000");
+  assert.equal(suggestible(target), null);
+});
+
 test("a comment anchors on its last line, in the file that line exists in", () => {
   const added = commentTarget(block.file, sides.modified.lines, 1, 3);
   assert.deepEqual(added, {

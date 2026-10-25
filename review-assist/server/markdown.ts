@@ -493,7 +493,7 @@ function interleaveGroups<T>(
   let i = 0;
   let j = 0;
   for (const [pi, pj] of [...pairs, [leftLength, rightLength] as const]) {
-    out.push(...unpaired({ from: i, to: pi }, { from: j, to: pj }));
+    for (const item of unpaired({ from: i, to: pi }, { from: j, to: pj })) out.push(item);
     if (pi < leftLength) out.push(both(pi, pj));
     i = pi + 1;
     j = pj + 1;

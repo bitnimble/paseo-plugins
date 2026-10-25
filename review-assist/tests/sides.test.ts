@@ -5,9 +5,18 @@ import { after, before, test } from "node:test";
 import { readBlob, readDiff } from "../server/git";
 import { UNCOMMITTED_MODE } from "../shared/protocol";
 import { TreeFiles } from "../server/trees";
-import { type DiffFile, parseDiff } from "../shared/diff";
+import { type DiffFile, type DiffLine, parseDiff } from "../shared/diff";
 import { type FileBlock, fullBlocks } from "../shared/guide";
-import { applyHunks, blockHunks, blockSides, hunksOf, takeChanges, wholeFileLines } from "../shared/sides";
+import {
+  applyHunks,
+  blockHunks,
+  blockSides,
+  changesThrough,
+  hunksOf,
+  shownChangeCount,
+  takeChanges,
+  wholeFileLines,
+} from "../shared/sides";
 import { freshRepo, gitIn, removeScratch, writeIn } from "./repo";
 
 let repo = "";
@@ -183,6 +192,43 @@ test("huge files are rebuilt and shown without overflowing the stack", () => {
   const removed = old.trimEnd().split("\n").map((line) => `-${line}`);
   const removal = parseDiff([...header, "+++ /dev/null", `@@ -1,${count} +0,0 @@`, ...removed, ""].join("\n"));
   assert.equal(blockHunks(fullBlocks(removal)[0], true)[0].lines.length, count);
+  assert.equal(wholeFileLines(fullBlocks(removal)[0], "", false).lines.length, count);
+});
+
+test("the change limit through a line covers the whole run of changes it sits in", () => {
+  const diff = parseDiff(
+    [
+      "diff --git a/t.txt b/t.txt",
+      "--- a/t.txt",
+      "+++ b/t.txt",
+      "@@ -1,5 +1,5 @@",
+      "-a",
+      "+A",
+      " b",
+      "-c",
+      "-d",
+      "+C",
+      "+D",
+      " e",
+      "",
+    ].join("\n"),
+  );
+  const [block] = fullBlocks(diff);
+  const onNew = (number: number) => (line: DiffLine) => line.newNumber === number;
+  assert.deepEqual(
+    [onNew(1), onNew(2), onNew(3), onNew(5), onNew(9)].map((wanted) => changesThrough(block, false, wanted)),
+    [2, 2, 6, 6, 0],
+  );
+  const sides = blockSides(block, "A\nb\nC\nD\ne\n", false, changesThrough(block, false, onNew(3)));
+  assert.equal(sides.modified.text, "A\nb\nC\nD\ne\n");
+});
+
+test("a whitespace-only change is not counted among the changes left to show", () => {
+  const diff = parseDiff(
+    ["diff --git a/w.txt b/w.txt", "--- a/w.txt", "+++ b/w.txt", "@@ -1,2 +1,2 @@", "-  x", "+x", "-y", "+Y", ""].join("\n"),
+  );
+  const [block] = fullBlocks(diff);
+  assert.deepEqual([shownChangeCount(block, false), shownChangeCount(block, true)], [4, 2]);
 });
 
 test("the tree holds untracked files exactly as the diff shows them", async () => {

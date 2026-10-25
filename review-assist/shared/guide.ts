@@ -16,7 +16,7 @@ export const proposalSchema = z.object({
 });
 export type Proposal = z.infer<typeof proposalSchema>;
 
-const guideRegionSchema =z.discriminatedUnion("kind", [
+const guideRegionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("lines"),
     hunkId: z.string(),
@@ -165,7 +165,9 @@ export function composeGuide(diff: ParsedDiff, sections: readonly GuideSection[]
         continue;
       }
       if (!diff.hunks.has(region.hunkId)) throw new Error(`Unknown hunk ${region.hunkId}`);
-      ranges.set(region.hunkId, [...(ranges.get(region.hunkId) ?? []), region]);
+      const tiles = ranges.get(region.hunkId);
+      if (tiles == null) ranges.set(region.hunkId, [region]);
+      else tiles.push(region);
     }
   }
 

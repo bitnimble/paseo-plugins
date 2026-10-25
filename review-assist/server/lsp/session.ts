@@ -27,7 +27,9 @@ interface PendingRequest {
 export class LspSession {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly documents = new Map<string, { version: number; text: string }>();
-  private buffer: Buffer = Buffer.alloc(0);
+  private received: Buffer[] = [];
+  private receivedBytes = 0;
+  private neededBytes = 0;
   private nextId = 1;
   private stopped = false;
 
@@ -151,8 +153,15 @@ export class LspSession {
   }
 
   private receive(chunk: Buffer): void {
-    const { bodies, rest } = decodeMessages(Buffer.concat([this.buffer, chunk]));
-    this.buffer = rest;
+    this.received.push(chunk);
+    this.receivedBytes += chunk.byteLength;
+    if (this.receivedBytes < this.neededBytes) {
+      return;
+    }
+    const { bodies, rest, needed } = decodeMessages(Buffer.concat(this.received, this.receivedBytes));
+    this.received = [rest];
+    this.receivedBytes = rest.byteLength;
+    this.neededBytes = needed;
     for (const body of bodies) {
       this.dispatch(body);
     }

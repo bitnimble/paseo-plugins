@@ -38,6 +38,7 @@ interface Line extends SideLine {
 export const CONTEXT_LINES = 3;
 const NO_NEWLINE_MARKER = "\\ No newline at end of file";
 export const CAPPED_CHANGES = 400;
+export const MORE_CHANGES_STEP = 2000;
 
 /**
  * The file before and after the block's own changes, given `newText`, the file as the whole diff
@@ -115,6 +116,33 @@ export function hunksOf(
   });
 }
 
+export function shownChangeCount(block: FileBlock, ignoreWhitespace: boolean): number {
+  return block.file.hunks.reduce((count, hunk) => count + shownLines(block, hunk, ignoreWhitespace).filter(isChange).length, 0);
+}
+
+/** The smallest change limit that keeps every line `wanted` picks in view. */
+export function changesThrough(
+  block: FileBlock,
+  ignoreWhitespace: boolean,
+  wanted: (line: DiffLine) => boolean,
+): number {
+  let changes = 0;
+  let through = 0;
+  for (const hunk of block.file.hunks) {
+    const lines = shownLines(block, hunk, ignoreWhitespace);
+    for (let i = 0; i < lines.length; i++) {
+      if (wanted(lines[i])) {
+        // Through the end of its run: a cut inside a run keeps removals and additions in proportion.
+        let end = i;
+        while (end < lines.length && isChange(lines[end])) end++;
+        through = changes + end - i;
+      }
+      if (isChange(lines[i])) changes++;
+    }
+  }
+  return through;
+}
+
 /** The block's own changes with a few lines of context, cut into hunks the way git would. */
 export function blockHunks(block: FileBlock, ignoreWhitespace: boolean): ShownHunk[] {
   return block.file.hunks.flatMap((hunk) => hunksOf(shownLines(block, hunk, ignoreWhitespace), CONTEXT_LINES));
@@ -140,7 +168,7 @@ export function takeChanges(
     const run = lines.slice(i, end);
     i = end;
     if (changes + run.length <= room) {
-      taken.push(...run);
+      for (const line of run) taken.push(line);
       changes += run.length;
       continue;
     }
@@ -149,7 +177,9 @@ export function takeChanges(
     const keptRemovals = Math.min(removals, Math.ceil((left * removals) / run.length));
     let removed = 0;
     let added = 0;
-    taken.push(...run.filter((line) => (line.kind === "del" ? removed++ < keptRemovals : added++ < left - keptRemovals)));
+    for (const line of run) {
+      if (line.kind === "del" ? removed++ < keptRemovals : added++ < left - keptRemovals) taken.push(line);
+    }
     return { lines: taken, changes: room, cut: true };
   }
   return { lines: taken, changes, cut: false };

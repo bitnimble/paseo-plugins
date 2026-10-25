@@ -19,7 +19,11 @@ export class GuideStore {
   }
 
   async read(target: Target): Promise<{ job: GuideJob | null; guide: GuideRecord | null }> {
-    return { job: this.jobs.get(targetKey(target)) ?? null, guide: await this.records.read(target) };
+    return { job: this.job(target), guide: await this.records.read(target) };
+  }
+
+  job(target: Target): GuideJob | null {
+    return this.jobs.get(targetKey(target)) ?? null;
   }
 
   generate(target: Target & { workspaceId: string }, paseo: PluginHandlerContext["paseo"]): GuideJob {
