@@ -105,6 +105,8 @@ export interface CodeEditor {
   changeViewZones(callback: (accessor: ViewZoneAccessor) => void): void;
   createDecorationsCollection(decorations?: readonly Decoration[]): DecorationsCollection;
   updateOptions(options: Readonly<Record<string, unknown>>): void;
+  getRawOptions(): Readonly<Record<string, unknown>>;
+  onDidChangeConfiguration(listener: () => void): IDisposable;
   dispose(): void;
 }
 

@@ -124,6 +124,13 @@ class ReviewMonaco {
     // Re-aims Monaco's global hover-delegate factory, which the diff editor left on its own instantiation
     // service: once that is disposed, lazy widgets in every other editor throw "InstantiationService has been disposed".
     monaco.editor.create(createDetachedNode(), {}).dispose();
+    const original = diff.getOriginalEditor();
+    original.onDidChangeConfiguration(() => {
+      const options = original.getRawOptions();
+      // Monaco turns this off for the inline view and keeps it off back side by side (glyph margin on),
+      // leaving the old side unwrapped.
+      if (options.glyphMargin === true && options.wordWrapOverride2 === "off") original.updateOptions({ wordWrapOverride2: "inherit" });
+    });
     return diff;
   }
 
