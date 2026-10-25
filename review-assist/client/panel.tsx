@@ -139,8 +139,8 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
             <Text style={{ color: theme.colors.statusDanger }}> -{compactCount(totals.deletions)}</Text>
           </Text>
         )}
-        {review.state.comments.length === 0 ? null : (
-          <SendComments theme={theme} workspaceId={workspaceId} review={review} />
+        {comments.comments.length === 0 ? null : (
+          <SendComments theme={theme} workspaceId={workspaceId} comments={comments.comments} submit={review.submit} />
         )}
         <Dropdown
           theme={theme}
@@ -241,7 +241,13 @@ function Review({ theme, layout, workspaceId, navigation }: PluginWorkspacePanel
           view={view}
           onResizePane={resizePane}
           fold={fold}
-          review={review}
+          live={live}
+          guide={review.guide}
+          guideError={review.guideError}
+          generate={review.generate}
+          viewedMarks={review.state.viewed}
+          setViewed={review.setViewed}
+          comments={comments}
           openAgent={navigation == null ? undefined : (agentId) => navigation.openAgent({ agentId })}
         />
       ) : live.status === "ready" ? (

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { isEdit } from "../shared/comments";
 import { type AgentForm, type AgentPicks, type ProviderChoice, agentForm } from "../shared/models";
-import { type AgentChoice, type Reviewer, agentsRpc } from "../shared/protocol";
+import { type AgentChoice, type DraftComment, type Reviewer, agentsRpc } from "../shared/protocol";
 import { Button, ToolbarTrigger } from "./controls";
 import { MenuItem } from "./menu";
 import { useProviders } from "./settings";
@@ -15,7 +15,17 @@ import type { Review } from "./use-review";
 
 const DEFAULT_PICKS: AgentPicks = { model: null, mode: null, thinking: null };
 
-export function SendComments({ theme, workspaceId, review }: { theme: PluginTheme; workspaceId: string; review: Review }) {
+export function SendComments({
+  theme,
+  workspaceId,
+  comments,
+  submit,
+}: {
+  theme: PluginTheme;
+  workspaceId: string;
+  comments: readonly DraftComment[];
+  submit: Review["submit"];
+}) {
   const toast = useToast();
   const listAgents = useRpc(agentsRpc);
   const [open, setOpen] = useState(false);
@@ -33,9 +43,9 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
   const [picks, setPicks] = useState(DEFAULT_PICKS);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const count = review.state.comments.length;
-  const comments = `${count} ${count === 1 ? "comment" : "comments"}`;
-  const edits = review.state.comments.filter(isEdit).length;
+  const count = comments.length;
+  const summary = `${count} ${count === 1 ? "comment" : "comments"}`;
+  const edits = comments.filter(isEdit).length;
   const onlyEdits = edits === count;
   const chosen = choices.find(({ id }) => id === picked) ?? choices[0] ?? null;
   const form = agentForm(providers.data?.entries ?? [], picks);
@@ -44,7 +54,7 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
 
   const send = async (to: Reviewer | null, done: string): Promise<void> => {
     setSending(true);
-    const failure = await review.submit({ reviewer: to, message });
+    const failure = await submit({ reviewer: to, message });
     setSending(false);
     if (failure != null) {
       toast.error(failure);
@@ -71,8 +81,8 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
 
   return (
     <>
-      <ToolbarTrigger theme={theme} label={comments} icon="MessageSquare" onPress={() => setOpen(true)} />
-      <Modal title={`Send ${comments}`} open={open} onOpenChange={setOpen}>
+      <ToolbarTrigger theme={theme} label={summary} icon="MessageSquare" onPress={() => setOpen(true)} />
+      <Modal title={`Send ${summary}`} open={open} onOpenChange={setOpen}>
         <Modal.Content>
           <View style={{ gap: 2 }}>
             {findingAgents ? (
@@ -122,7 +132,7 @@ export function SendComments({ theme, workspaceId, review }: { theme: PluginThem
               onPress={() => {
                 if (reviewer == null) return;
                 const to = reviewer.kind === "new" ? "a new agent" : (chosen?.title ?? "the agent");
-                void send(reviewer, `Sent ${comments} to ${to}`);
+                void send(reviewer, `Sent ${summary} to ${to}`);
               }}
             />
           </View>

@@ -4,14 +4,15 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { type FileBlock, blockCounts, blockFingerprint, guideBlocks } from "../shared/guide";
-import type { GuideRecord } from "../shared/protocol";
+import type { GuideRecord, ViewedMark } from "../shared/protocol";
 import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
 import { Button, Notice } from "./controls";
-import { DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
-import { FileList, Filtered, PaneHeading, Split } from "./panes";
-import { type Review, commentStore } from "./use-review";
+import { type CommentStore, DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
+import { FileList, Filtered } from "./panes";
+import { ReviewSplit } from "./review-split";
+import type { GuideState, LiveDiff } from "./use-review";
 
 interface GuidedViewProps {
   readonly theme: PluginTheme;
@@ -20,14 +21,33 @@ interface GuidedViewProps {
   readonly view: ViewOptions;
   readonly onResizePane: (width: number) => void;
   readonly fold: FoldCommand | null;
-  readonly review: Review;
+  readonly live: LiveDiff;
+  readonly guide: GuideState | null;
+  readonly guideError: string | null;
+  readonly generate: () => void;
+  readonly viewedMarks: readonly ViewedMark[];
+  readonly setViewed: (mark: ViewedMark, viewed: boolean) => void;
+  readonly comments: CommentStore;
   readonly openAgent?: (agentId: string) => void;
 }
 
-export function GuidedView({ theme, narrow, view, onResizePane, fold, review, openAgent }: GuidedViewProps) {
-  const { guide, live } = review;
+export function GuidedView({
+  theme,
+  narrow,
+  view,
+  onResizePane,
+  fold,
+  live,
+  guide,
+  guideError,
+  generate,
+  viewedMarks,
+  setViewed,
+  comments,
+  openAgent,
+}: GuidedViewProps) {
   if (guide == null) {
-    return <Message theme={theme}>{review.guideError ?? "Loading the guided review…"}</Message>;
+    return <Message theme={theme}>{guideError ?? "Loading the guided review…"}</Message>;
   }
   const { job, record, diff } = guide;
   const agentButton = (agentId: string | null) =>
@@ -50,7 +70,7 @@ export function GuidedView({ theme, narrow, view, onResizePane, fold, review, op
           actions={
             <>
               {agentButton(job.agentId)}
-              <Button theme={theme} size="xs" label="Try again" icon="RefreshCw" onPress={review.generate} />
+              <Button theme={theme} size="xs" label="Try again" icon="RefreshCw" onPress={generate} />
             </>
           }
         >
@@ -62,7 +82,7 @@ export function GuidedView({ theme, narrow, view, onResizePane, fold, review, op
           theme={theme}
           tone="warning"
           actions={
-            <Button theme={theme} size="xs" label="Regenerate" icon="RefreshCw" onPress={review.generate} />
+            <Button theme={theme} size="xs" label="Regenerate" icon="RefreshCw" onPress={generate} />
           }
         >
           The diff changed after this review was generated. The sections still show the diff they were made from.
@@ -93,7 +113,7 @@ export function GuidedView({ theme, narrow, view, onResizePane, fold, review, op
                 label={empty ? "No changes to review" : "Generate guided review"}
                 icon="Sparkles"
                 disabled={live.status !== "ready" || empty}
-                onPress={review.generate}
+                onPress={generate}
               />
             </View>
           </View>
@@ -113,7 +133,9 @@ export function GuidedView({ theme, narrow, view, onResizePane, fold, review, op
         fold={fold}
         record={record}
         diff={diff}
-        review={review}
+        viewedMarks={viewedMarks}
+        setViewed={setViewed}
+        comments={comments}
       />
     </View>
   );
@@ -127,7 +149,9 @@ function Sections({
   fold,
   record,
   diff,
-  review,
+  viewedMarks,
+  setViewed,
+  comments,
 }: {
   theme: PluginTheme;
   narrow: boolean;
@@ -136,7 +160,9 @@ function Sections({
   fold: FoldCommand | null;
   record: GuideRecord;
   diff: ParsedDiff;
-  review: Review;
+  viewedMarks: readonly ViewedMark[];
+  setViewed(mark: ViewedMark, viewed: boolean): void;
+  comments: CommentStore;
 }) {
   const [selected, setSelected] = useState(0);
   const [target, setTarget] = useState<ScrollTarget | null>(null);
@@ -161,8 +187,8 @@ function Sections({
     [allBlocks],
   );
   const marks = useMemo(
-    () => new Set(review.state.viewed.map(({ path, fingerprint }) => `${path}\0${fingerprint}`)),
-    [review.state.viewed],
+    () => new Set(viewedMarks.map(({ path, fingerprint }) => `${path}\0${fingerprint}`)),
+    [viewedMarks],
   );
   const source = useMemo(
     () => ({ root: record.root, tree: record.tree, base: record.base.sha }),
@@ -178,10 +204,9 @@ function Sections({
   const viewed: FileViewing = {
     isViewed,
     setViewed: (block, value) =>
-      review.setViewed({ path: block.file.path, fingerprint: fingerprints.get(block) ?? blockFingerprint(block) }, value),
+      setViewed({ path: block.file.path, fingerprint: fingerprints.get(block) ?? blockFingerprint(block) }, value),
   };
-  const comments = commentStore(review);
-  const commentCounts = countByPath(review.state.comments);
+  const commentCounts = countByPath(comments.comments);
 
   const go = (next: number, blockIndex?: number) => {
     setSelected(next);
@@ -238,78 +263,67 @@ function Sections({
   );
 
   return (
-    <Split
+    <ReviewSplit
       theme={theme}
-      paneWidth={view.paneWidth}
+      view={view}
       onResizePane={onResizePane}
-      pane={
-        <>
-          <PaneHeading theme={theme}>
-            {sectionViewed.filter(Boolean).length} of {count} sections viewed
-          </PaneHeading>
-          {record.sections.map((item, sectionIndex) => (
-            <Filtered key={item.id} paths={blocksBySection[sectionIndex].map((block) => block.file.path)}>
-              <View style={{ paddingBottom: 6 }}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: sectionIndex === index }}
-                  onPress={() => go(sectionIndex)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 7,
-                    backgroundColor:
-                      sectionIndex === index ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
-                  })}
-                >
-                  <View style={{ paddingTop: 3 }}>
-                    <Icon
-                      name={sectionViewed[sectionIndex] ? "CircleCheck" : "Circle"}
-                      size={14}
-                      color={sectionViewed[sectionIndex] ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
-                    />
-                  </View>
-                  <Text
-                    style={{ flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.foreground, fontWeight: "600" }}
-                    numberOfLines={2}
-                  >
-                    {sectionIndex + 1}. {item.title}
-                  </Text>
-                </Pressable>
-                <FileList
-                  theme={theme}
-                  layout={view.fileList}
-                  indent={22}
-                  entries={blocksBySection[sectionIndex].map((block, blockIndex) => ({
-                    file: block.file,
-                    ...blockCounts(block),
-                    viewed: isViewed(block),
-                    comments: commentCounts.get(block.file.path),
-                    onPress: () => go(sectionIndex, blockIndex),
-                  }))}
+      paneHeading={`${sectionViewed.filter(Boolean).length} of ${count} sections viewed`}
+      pane={record.sections.map((item, sectionIndex) => (
+        <Filtered key={item.id} paths={blocksBySection[sectionIndex].map((block) => block.file.path)}>
+          <View style={{ paddingBottom: 6 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: sectionIndex === index }}
+              onPress={() => go(sectionIndex)}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                backgroundColor:
+                  sectionIndex === index ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
+              })}
+            >
+              <View style={{ paddingTop: 3 }}>
+                <Icon
+                  name={sectionViewed[sectionIndex] ? "CircleCheck" : "Circle"}
+                  size={14}
+                  color={sectionViewed[sectionIndex] ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
                 />
               </View>
-            </Filtered>
-          ))}
-        </>
-      }
-    >
-      <DiffList
-        key={`${record.createdAt}:${section.id}`}
-        blocks={blocks}
-        source={source}
-        theme={theme}
-        view={view}
-        target={target}
-        fold={fold}
-        viewed={viewed}
-        comments={comments}
-        header={header}
-        footer={footer}
-      />
-    </Split>
+              <Text
+                style={{ flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.foreground, fontWeight: "600" }}
+                numberOfLines={2}
+              >
+                {sectionIndex + 1}. {item.title}
+              </Text>
+            </Pressable>
+            <FileList
+              theme={theme}
+              layout={view.fileList}
+              indent={22}
+              entries={blocksBySection[sectionIndex].map((block, blockIndex) => ({
+                file: block.file,
+                ...blockCounts(block),
+                viewed: isViewed(block),
+                comments: commentCounts.get(block.file.path),
+                onPress: () => go(sectionIndex, blockIndex),
+              }))}
+            />
+          </View>
+        </Filtered>
+      ))}
+      listKey={`${record.createdAt}:${section.id}`}
+      blocks={blocks}
+      source={source}
+      target={target}
+      fold={fold}
+      viewed={viewed}
+      comments={comments}
+      header={header}
+      footer={footer}
+    />
   );
 }
 

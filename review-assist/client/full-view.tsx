@@ -6,9 +6,10 @@ import { fullBlocks } from "../shared/guide";
 import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
-import { type CommentStore, DiffList, type FoldCommand, type ScrollTarget } from "./diff-list";
+import type { CommentStore, FoldCommand, ScrollTarget } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
-import { FileList, PaneHeading, Split } from "./panes";
+import { FileList } from "./panes";
+import { ReviewSplit } from "./review-split";
 
 export function FullView({
   theme,
@@ -44,32 +45,31 @@ export function FullView({
     );
   }
   return (
-    <Split
+    <ReviewSplit
       theme={theme}
-      paneWidth={view.paneWidth}
+      view={view}
       onResizePane={onResizePane}
+      paneHeading={`${blocks.length} ${blocks.length === 1 ? "file" : "files"} changed`}
       pane={
         narrow ? null : (
-          <>
-            <PaneHeading theme={theme}>
-              {blocks.length} {blocks.length === 1 ? "file" : "files"} changed
-            </PaneHeading>
-            <FileList
-              theme={theme}
-              layout={view.fileList}
-              entries={blocks.map(({ file }, blockIndex) => ({
-                file,
-                additions: file.additions,
-                deletions: file.deletions,
-                comments: counts.get(file.path),
-                onPress: () => setTarget({ blockIndex, nonce: Date.now() }),
-              }))}
-            />
-          </>
+          <FileList
+            theme={theme}
+            layout={view.fileList}
+            entries={blocks.map(({ file }, blockIndex) => ({
+              file,
+              additions: file.additions,
+              deletions: file.deletions,
+              comments: counts.get(file.path),
+              onPress: () => setTarget({ blockIndex, nonce: Date.now() }),
+            }))}
+          />
         )
       }
-    >
-      <DiffList blocks={blocks} source={source} theme={theme} view={view} target={target} fold={fold} comments={comments} />
-    </Split>
+      blocks={blocks}
+      source={source}
+      target={target}
+      fold={fold}
+      comments={comments}
+    />
   );
 }
