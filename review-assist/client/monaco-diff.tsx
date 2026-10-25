@@ -32,7 +32,8 @@ const CARD_HEIGHT_ESTIMATE = 96;
 const CARDS_CLIP = { reviewcards: "" } as const;
 // Above the diff editor's own zones on the same line, such as inline removed lines.
 const ZONE_ORDINAL = 10_000;
-const GLYPH_CLASS = "codicon codicon-add review-comment-glyph";
+const COMMENT_GLYPH = "review-comment-glyph";
+const GLYPH_CLASS = `codicon codicon-add ${COMMENT_GLYPH}`;
 const INSERT_SIGN = "review-sign insert-sign codicon codicon-diff-insert";
 const DELETE_SIGN = "review-sign delete-sign codicon codicon-diff-remove";
 
@@ -263,7 +264,6 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
 
   useEffect(() => {
     if (editors == null || disposed.current.has(editors)) return;
-    const glyphMargin = editors.monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN;
     const listeners: IDisposable[] = [];
     for (const name of ["original", "modified"] as const) {
       const editor = editors[name];
@@ -285,7 +285,8 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
         }),
         editor.onMouseDown(({ target }) => {
           const line = target.position?.lineNumber;
-          if (target.type !== glyphMargin || line == null || line > lines.length) return;
+          // Only our glyph: the margin also holds Monaco's own controls, such as an unchanged region's collapse.
+          if (target.element?.classList.contains(COMMENT_GLYPH) !== true || line == null || line > lines.length) return;
           const [start, end] = selectedLines(editor.getSelection(), line);
           latest.current.props.comments.compose(lines, start - 1, end - 1);
         }),

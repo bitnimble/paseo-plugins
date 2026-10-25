@@ -62,7 +62,10 @@ export interface ViewZoneAccessor {
 }
 
 export interface EditorMouseEvent {
-  readonly target: { readonly type: number; readonly position: MonacoPosition | null };
+  readonly target: {
+    readonly position: MonacoPosition | null;
+    readonly element: { readonly classList: { contains(name: string): boolean } } | null;
+  };
 }
 
 export interface Decoration {
@@ -132,7 +135,6 @@ export interface Monaco {
     getModel(uri: MonacoUri): MonacoModel | null;
     defineTheme(name: string, theme: MonacoThemeData): void;
     setTheme(name: string): void;
-    MouseTargetType: { readonly GUTTER_GLYPH_MARGIN: number };
   };
   languages: {
     registerDefinitionProvider(selector: string, provider: { provideDefinition: Provider<MonacoLocation[]> }): IDisposable;
