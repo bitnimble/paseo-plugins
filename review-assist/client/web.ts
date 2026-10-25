@@ -23,6 +23,7 @@ declare const document: {
   createElement(tagName: "script"): ScriptElement;
   createElement(tagName: "style" | "div"): ElementNode;
   head: { appendChild(element: ScriptElement | ElementNode): void };
+  documentElement: { classList: { toggle(name: string, force: boolean): void } };
 };
 
 declare const window: {
@@ -68,10 +69,15 @@ const EXTRA_CSS = `
 .review-scope-margin { border-left-width: 1px; }
 .review-scope-first { border-top-width: 1px; }
 .review-scope-last { border-bottom-width: 1px; }
-:root:has([data-reviewresizing]) * { user-select: none; cursor: col-resize; }
+.review-resizing, .review-resizing * { user-select: none !important; cursor: col-resize !important; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
 `;
+
+/** Holds the resize cursor, and stops text selection, wherever the pointer wanders mid-drag. */
+export function markResizing(resizing: boolean): void {
+  if (Platform.OS === "web") document.documentElement.classList.toggle("review-resizing", resizing);
+}
 
 /** Monaco is mouse-and-keyboard software: phones and tablets get the built-in renderer. */
 export function isMonacoSupported(): boolean {

@@ -1,11 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
-import { type ReactNode, createContext, useContext, useMemo, useRef, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Pressable, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import type { ViewOptions } from "../shared/settings";
 import { treeRows } from "../shared/tree";
 import { ChangeStats, FileLabel } from "./controls";
+import { markResizing } from "./web";
 
 const MIN_PANE_WIDTH = 180;
 const MAX_PANE_WIDTH = 640;
@@ -13,7 +14,6 @@ const MIN_DIFF_WIDTH = 480;
 const TREE_INDENT = 12;
 const CHEVRON_SPACE = 22;
 const RESIZE_HANDLE = { reviewresize: "" } as const;
-const RESIZING_HANDLE = { reviewresize: "", reviewresizing: "" } as const;
 
 /** Whether `width` holds the side pane beside a diff still wide enough to read. */
 export function fitsPane(width: number): boolean {
@@ -117,6 +117,11 @@ function ResizeHandle({
   onDrop(width: number): void;
 }) {
   const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (!dragging) return;
+    markResizing(true);
+    return () => markResizing(false);
+  }, [dragging]);
   const start = useRef(width);
   const latest = useRef({ width, clamp, onDrag, onDrop });
   latest.current = { width, clamp, onDrag, onDrop };
@@ -141,7 +146,7 @@ function ResizeHandle({
     <View
       {...responder.panHandlers}
       accessibilityLabel="Resize the file list"
-      dataSet={dragging ? RESIZING_HANDLE : RESIZE_HANDLE}
+      dataSet={RESIZE_HANDLE}
       style={{ position: "absolute", top: 0, bottom: 0, right: -4, width: 7, alignItems: "center", zIndex: 2 }}
     >
       {dragging ? <View style={{ width: 2, flex: 1, backgroundColor: theme.colors.foregroundMuted }} /> : null}
