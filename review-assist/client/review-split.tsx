@@ -29,7 +29,7 @@ export function ReviewSplit({
       paneWidth={view.paneWidth}
       onResizePane={onResizePane}
       pane={
-        pane == null ? null : (
+        pane == null || !view.showPane ? null : (
           <>
             <PaneHeading theme={theme}>{paneHeading}</PaneHeading>
             {pane}

@@ -36,7 +36,7 @@ const TABS: readonly { value: Tab; label: string }[] = [
   { value: "full", label: "Full diff" },
 ];
 
-const VIEW_KEYS = ["layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth"] as const;
+const VIEW_KEYS = ["layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth", "showPane"] as const;
 const DEFAULT_SETTINGS = reviewSettings.schema.parse({});
 
 export function ReviewPanel(props: PluginWorkspacePanelProps) {
@@ -130,6 +130,15 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           backgroundColor: theme.colors.surface0,
         }}
       >
+        {narrow ? null : (
+          <IconButton
+            theme={theme}
+            icon={view.showPane ? "PanelLeftClose" : "PanelLeftOpen"}
+            label={view.showPane ? "Hide the side pane" : "Show the side pane"}
+            tooltipSide="start"
+            onPress={() => setView({ showPane: !view.showPane })}
+          />
+        )}
         <Tabs<Tab> theme={theme} value={tab} options={TABS} onChange={(next) => setPlace({ ...place, tab: next })} />
         <ModeMenu
           theme={theme}
@@ -285,7 +294,7 @@ function useViewOptions(narrow: boolean): { view: ViewOptions; setView(change: P
   const [pending, setPending] = useState<Partial<ViewOptions>>({});
   const savedAgainst = useRef<string | null>(null);
   const stored = settings.status === "ready" ? settings.values : DEFAULT_SETTINGS;
-  const { layout, wrapLines, hideWhitespace, fileList, paneWidth } = stored;
+  const { layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane } = stored;
   // Every file row is memoised on it, so a new object per render re-renders them all.
   const view = useMemo(
     (): ViewOptions => ({
@@ -294,8 +303,9 @@ function useViewOptions(narrow: boolean): { view: ViewOptions; setView(change: P
       hideWhitespace: pending.hideWhitespace ?? hideWhitespace,
       fileList: pending.fileList ?? fileList,
       paneWidth: pending.paneWidth ?? paneWidth,
+      showPane: pending.showPane ?? showPane,
     }),
-    [narrow, pending, layout, wrapLines, hideWhitespace, fileList, paneWidth],
+    [narrow, pending, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane],
   );
 
   useEffect(() => {

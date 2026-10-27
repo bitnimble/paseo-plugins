@@ -13,8 +13,12 @@ export const reviewSettings = defineSettings({
     hideWhitespace: z.boolean().default(false),
     fileList: z.enum(["flat", "tree"]).default("flat"),
     paneWidth: z.number().int().default(300),
+    showPane: z.boolean().default(true),
   }),
 });
 
 export type ReviewSettings = z.output<typeof reviewSettings.schema>;
-export type ViewOptions = Pick<ReviewSettings, "layout" | "wrapLines" | "hideWhitespace" | "fileList" | "paneWidth">;
+export type ViewOptions = Pick<
+  ReviewSettings,
+  "layout" | "wrapLines" | "hideWhitespace" | "fileList" | "paneWidth" | "showPane"
+>;

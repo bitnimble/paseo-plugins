@@ -32,7 +32,8 @@ the diff it was showing, Guided or Full diff, and its section.
 **View** switches between unified and split layouts, wraps long lines, hides lines that only
 changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.
 These change how lines are shown, never which section they belong to. Drag the side pane's edge to
-resize it; these choices are saved on the daemon.
+resize it, or hide and show it with the button at the toolbar's left; these choices are saved on the
+daemon.
 
 **Filter files** at the top of the side pane keeps the files whose path holds every word typed, and
 the guided review's sections holding any of them.
