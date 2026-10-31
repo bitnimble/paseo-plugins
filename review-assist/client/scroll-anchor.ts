@@ -1,14 +1,13 @@
 import { useEffect, useRef } from "react";
+import { Platform } from "react-native";
 import { z } from "zod";
 
-// This plugin typechecks without the DOM library; both are absent on native.
-declare const document:
-  | undefined
-  | {
-      visibilityState: string;
-      addEventListener(type: "visibilitychange", listener: () => void): void;
-      removeEventListener(type: "visibilitychange", listener: () => void): void;
-    };
+// This plugin typechecks without the DOM library.
+declare const document: {
+  visibilityState: string;
+  addEventListener(type: "visibilitychange", listener: () => void): void;
+  removeEventListener(type: "visibilitychange", listener: () => void): void;
+};
 declare const window: {
   addEventListener(type: "pagehide", listener: () => void): void;
   removeEventListener(type: "pagehide", listener: () => void): void;
@@ -49,15 +48,14 @@ export function useDebouncedCallback<T extends unknown[]>(fn: (...args: T) => vo
   });
   useEffect(() => {
     // A webview teardown within the debounce window would otherwise drop the last scroll anchor.
-    const doc = document;
-    if (doc == null) return () => flush.current();
+    if (Platform.OS !== "web") return () => flush.current();
     const onHide = (): void => {
-      if (doc.visibilityState === "hidden") flush.current();
+      if (document.visibilityState === "hidden") flush.current();
     };
-    doc.addEventListener("visibilitychange", onHide);
+    document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onHide);
     return () => {
-      doc.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", onHide);
       flush.current();
     };
