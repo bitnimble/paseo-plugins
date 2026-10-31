@@ -11,6 +11,7 @@ const NARROW_WIDTH = 720;
 export function Dropdown({
   theme,
   label,
+  accessibilityLabel,
   icon,
   toolbar,
   open,
@@ -19,6 +20,7 @@ export function Dropdown({
 }: {
   theme: PluginTheme;
   label: string;
+  accessibilityLabel?: string;
   icon?: string;
   /** Keeps the menu inside this view, which must contain the dropdown. */
   toolbar: RefObject<View | null>;
@@ -46,7 +48,14 @@ export function Dropdown({
   };
   return (
     <View ref={trigger} collapsable={false}>
-      <ToolbarTrigger theme={theme} label={label} icon={icon} open={open} onPress={toggle} />
+      <ToolbarTrigger
+        theme={theme}
+        label={label}
+        accessibilityLabel={accessibilityLabel}
+        icon={icon}
+        open={open}
+        onPress={toggle}
+      />
       {open ? (
         <View
           accessibilityRole="menu"

@@ -10,7 +10,7 @@ import {
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Text } from "react-native";
 import { messageOf } from "../shared/errors";
-import { automaticChoice, modelChoices } from "../shared/models";
+import { type ModelChoice, automaticChoice, modelChoices } from "../shared/models";
 import { type UpdateStatus, updateRpc, updateStatusRpc } from "../shared/protocol";
 import { reviewSettings } from "../shared/settings";
 
@@ -52,14 +52,7 @@ function ModelSettings({ theme }: PluginSurfaceProps) {
 
   const choices = modelChoices(providers.data?.entries ?? []);
   const automatic = automaticChoice(choices);
-  const current = settings.values.model;
-  const options = [
-    { value: "", label: automatic == null ? "Automatic" : `Automatic (${automatic.label})` },
-    ...(current === "" || choices.some((choice) => choice.value === current)
-      ? []
-      : [{ value: current, label: current }]),
-    ...choices,
-  ];
+  const { model, backupModel } = settings.values;
 
   return (
     <SettingsSection title="Guided review">
@@ -69,13 +62,30 @@ function ModelSettings({ theme }: PluginSurfaceProps) {
           hint="The agent that splits a diff into sections. Runs once per generation, in the reviewed workspace."
           error={settings.saveError}
           disabled={settings.saving}
-          value={current}
-          options={options}
-          onValueChange={(model) => void settings.save({ ...settings.values, model }, settings.revision)}
+          value={model}
+          options={[
+            { value: "", label: automatic == null ? "Automatic" : `Automatic (${automatic.label})` },
+            ...savedOptionsNotOffered(model, choices),
+            ...choices,
+          ]}
+          onValueChange={(next) => void settings.save({ ...settings.values, model: next }, settings.revision)}
+        />
+        <SettingsSelect
+          label="Backup model"
+          hint="Takes over when the model's provider isn't ready or a run on it fails, such as when it's out of quota. With None, the generation fails instead."
+          error={settings.saveError}
+          disabled={settings.saving}
+          value={backupModel}
+          options={[{ value: "", label: "None" }, ...savedOptionsNotOffered(backupModel, choices), ...choices]}
+          onValueChange={(next) => void settings.save({ ...settings.values, backupModel: next }, settings.revision)}
         />
       </SettingsCard>
     </SettingsSection>
   );
+}
+
+function savedOptionsNotOffered(saved: string, choices: readonly ModelChoice[]): { value: string; label: string }[] {
+  return saved === "" || choices.some((choice) => choice.value === saved) ? [] : [{ value: saved, label: saved }];
 }
 
 function UpdateSettings() {

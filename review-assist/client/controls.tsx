@@ -55,12 +55,14 @@ export function Tabs<Value extends string>({
 export function ToolbarTrigger({
   theme,
   label,
+  accessibilityLabel = label,
   icon,
   open,
   onPress,
 }: {
   theme: PluginTheme;
   label: string;
+  accessibilityLabel?: string;
   icon?: string;
   /** Set when it opens a menu: adds the chevron and expanded state. */
   open?: boolean;
@@ -69,7 +71,7 @@ export function ToolbarTrigger({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={open == null ? undefined : { expanded: open }}
       onPress={onPress}
       style={({ pressed }) => ({

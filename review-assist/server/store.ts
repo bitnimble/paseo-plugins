@@ -2,9 +2,10 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { parseDiff } from "../shared/diff";
 import { buildGuide } from "../shared/guide";
 import { type GuideJob, type GuideRecord, guideRecordSchema } from "../shared/protocol";
+import type { ReviewSettings } from "../shared/settings";
 import { readDiff } from "./git";
 import { messageOf } from "../shared/errors";
-import { SegmentError, proposeSections, resolveModel } from "./segment";
+import { SegmentError, proposeSections, resolveModels } from "./segment";
 import { JsonSlots, type Target, targetKey, targetSlot } from "./slots";
 
 export class GuideStore {
@@ -13,7 +14,7 @@ export class GuideStore {
 
   constructor(
     directory: string,
-    private readonly configuredModel: () => Promise<string>,
+    private readonly modelSettings: () => Promise<Pick<ReviewSettings, "model" | "backupModel">>,
   ) {
     this.records = new JsonSlots(directory, guideRecordSchema);
   }
@@ -56,10 +57,11 @@ export class GuideStore {
       throw new Error("There are no changes to review.");
     }
     const diff = parseDiff(snapshot.raw, snapshot.facts);
-    const model = await resolveModel(paseo, target.directory, await this.configuredModel());
+    const { model, backupModel } = await this.modelSettings();
+    const models = await resolveModels(paseo, target.directory, model, backupModel);
     const proposal = await proposeSections(paseo, {
       workspaceId: target.workspaceId,
-      model,
+      models,
       diff,
       onAgent: (agentId) => {
         const job = this.jobs.get(key);
@@ -74,7 +76,7 @@ export class GuideStore {
       tree: snapshot.tree,
       facts: snapshot.facts,
       sections: buildGuide(diff, proposal),
-      model,
+      model: models.current,
       createdAt: new Date().toISOString(),
     };
     await this.records.update(targetSlot(target), () => record);

@@ -8,6 +8,8 @@ export const reviewSettings = defineSettings({
   schema: z.object({
     /** `provider/model`; empty is "Automatic", which `automaticChoice` resolves. */
     model: z.string().default(""),
+    /** `provider/model`; empty is none. */
+    backupModel: z.string().default(""),
     layout: z.enum(["unified", "split"]).default("unified"),
     wrapLines: z.boolean().default(false),
     hideWhitespace: z.boolean().default(false),

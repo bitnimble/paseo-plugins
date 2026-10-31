@@ -114,3 +114,12 @@ export function automaticChoice(choices: readonly ModelChoice[]): ModelChoice | 
   }
   return choices[0] ?? null;
 }
+
+/** The models to run on, best first: those a ready provider offers, or all of them when none is. */
+export function modelsToTry(entries: readonly ProviderEntry[], configured: string, backup: string): string[] {
+  const choices = modelChoices(entries);
+  const primary = configured.trim() === "" ? automaticChoice(choices)?.value : configured.trim();
+  const models = [...new Set([primary ?? "", backup.trim()])].filter((model) => model !== "");
+  const offered = models.filter((model) => choices.some(({ value }) => value === model));
+  return offered.length > 0 ? offered : models;
+}

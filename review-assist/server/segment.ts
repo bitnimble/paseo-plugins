@@ -3,7 +3,7 @@ import { z } from "zod";
 import { LINE_PREFIX, type DiffFile, type DiffHunk, type ParsedDiff } from "../shared/diff";
 import { type Proposal, proposalSchema } from "../shared/guide";
 import { messageOf } from "../shared/errors";
-import { automaticChoice, modelChoices } from "../shared/models";
+import { modelsToTry } from "../shared/models";
 
 type Paseo = PluginHandlerContext["paseo"];
 type Section = Proposal["sections"][number];
@@ -14,6 +14,7 @@ const HUNK_HEAD_LINES = 300;
 const HUNK_TAIL_LINES = 50;
 export const PROMPT_BUDGET_CHARS = 300_000;
 const MAX_PARALLEL_AGENTS = 4;
+const MAX_QUOTED_ANSWER_CHARS = 240;
 
 const mergeSchema = z.object({
   sections: z.array(z.object({ title: z.string(), description: z.string(), parts: z.array(z.string()) })),
@@ -34,26 +35,52 @@ export class SegmentError extends Error {
   constructor(
     message: string,
     readonly agentId: string,
+    readonly answer: string | null = null,
   ) {
     super(message);
   }
 }
 
-export async function resolveModel(paseo: Paseo, directory: string, configured: string): Promise<string> {
-  if (configured.trim() !== "") {
-    return configured.trim();
+class StuckAgentError extends SegmentError {}
+
+/** The models one generation runs on; one that fails is skipped for the rest of the generation. */
+export class ModelFallback {
+  private position = 0;
+
+  constructor(private readonly models: readonly [string, ...string[]]) {}
+
+  get current(): string {
+    return this.models[this.position];
   }
-  const { entries } = await paseo.providers.waitForReady({ cwd: directory, timeoutMs: 30_000 });
-  const choice = automaticChoice(modelChoices(entries));
-  if (choice == null) {
+
+  failed(model: string): string | null {
+    // Not a plain increment: parts running at once may report the same model.
+    const after = this.models.indexOf(model) + 1;
+    if (after === this.models.length) return null;
+    this.position = Math.max(this.position, after);
+    return this.models[after];
+  }
+}
+
+export async function resolveModels(
+  paseo: Paseo,
+  directory: string,
+  configured: string,
+  backup: string,
+): Promise<ModelFallback> {
+  const { entries } = await paseo.providers
+    .waitForReady({ cwd: directory, timeoutMs: 30_000 })
+    .catch(() => ({ entries: [] }));
+  const [first, ...rest] = modelsToTry(entries, configured, backup);
+  if (first == null) {
     throw new Error("No agent provider is ready. Pick a model under Settings → Plugins → Review assist.");
   }
-  return choice.value;
+  return new ModelFallback([first, ...rest]);
 }
 
 interface AgentInput {
   readonly workspaceId: string;
-  readonly model: string;
+  readonly models: ModelFallback;
   onAgent(agentId: string): void;
 }
 
@@ -80,11 +107,10 @@ export async function proposeSections(
       },
     );
   });
-  if (failures.length === chunks.length) {
-    throw failures[0];
-  }
-  // The job reports none of these, so nothing would ever surface or unblock them.
-  await Promise.all(failures.map((error) => archiveFailed(paseo, error)));
+  const allFailed = failures.length === chunks.length;
+  // The job reports at most the first, so nothing would ever surface or unblock the rest.
+  await Promise.all(failures.slice(allFailed ? 1 : 0).map((error) => archiveFailed(paseo, error)));
+  if (allFailed) throw failures[0];
   const sections = parts.flatMap((part) => part.sections);
   const merge = await askAgent(paseo, input, "Guided review, merge", mergePrompt(input.diff, sections), mergeAnswer).catch(
     async (error: unknown) => {
@@ -208,15 +234,57 @@ export function mergeSections(sections: readonly Section[], merge: Merge): Secti
   return [...merged, ...sections.filter((_, index) => !placed.has(index))];
 }
 
+interface AnswerFormat<Answer> {
+  readonly schema: Record<string, unknown>;
+  parse(text: string): Answer;
+}
+
 async function askAgent<Answer>(
   paseo: Paseo,
   input: AgentInput,
   title: string,
   prompt: string,
-  answer: { schema: Record<string, unknown>; parse(text: string): Answer },
+  answer: AnswerFormat<Answer>,
+): Promise<Answer> {
+  const earlier: string[] = [];
+  let model = input.models.current;
+  for (;;) {
+    try {
+      return await askModel(paseo, input, model, title, prompt, answer);
+    } catch (error) {
+      const next = error instanceof StuckAgentError ? null : input.models.failed(model);
+      if (next == null) throw withEarlierFailures(error, model, earlier);
+      await archiveFailed(paseo, error);
+      earlier.push(failureOn(model, error));
+      model = next;
+    }
+  }
+}
+
+function withEarlierFailures(error: unknown, model: string, earlier: readonly string[]): unknown {
+  if (earlier.length === 0) return error;
+  const message = [...earlier, failureOn(model, error)].join("\n");
+  return error instanceof SegmentError ? new SegmentError(message, error.agentId) : new Error(message);
+}
+
+function failureOn(model: string, error: unknown): string {
+  const failure = `${model} failed: ${messageOf(error)}`;
+  if (!(error instanceof SegmentError) || error.answer == null) return failure;
+  const { answer } = error;
+  const quoted = answer.length > MAX_QUOTED_ANSWER_CHARS ? `${answer.slice(0, MAX_QUOTED_ANSWER_CHARS)}…` : answer;
+  return `${failure}. It said: ${quoted}`;
+}
+
+async function askModel<Answer>(
+  paseo: Paseo,
+  input: AgentInput,
+  model: string,
+  title: string,
+  prompt: string,
+  answer: AnswerFormat<Answer>,
 ): Promise<Answer> {
   const agent = await paseo.workspaces.ref(input.workspaceId).agents.create({
-    config: { provider: input.model },
+    config: { provider: model },
     title,
     prompt,
     outputSchema: answer.schema,
@@ -229,13 +297,16 @@ async function askAgent<Answer>(
   });
   input.onAgent(agent.id);
 
-  const result = await agent.waitForFinish(SEGMENT_TIMEOUT_MS);
+  const result = await agent.waitForFinish(SEGMENT_TIMEOUT_MS).catch((error: unknown) => {
+    // Lost track of it, not necessarily dead: a backup would run alongside it.
+    throw new StuckAgentError(messageOf(error), agent.id);
+  });
   if (result.status === "permission") {
-    throw new SegmentError("The guided review agent is waiting on a permission request.", agent.id);
+    throw new StuckAgentError("The guided review agent is waiting on a permission request.", agent.id);
   }
   if (result.status === "timeout") {
     await agent.archive().catch(() => undefined);
-    throw new SegmentError("The guided review agent did not finish in time and was stopped.", agent.id);
+    throw new StuckAgentError("The guided review agent did not finish in time and was stopped.", agent.id);
   }
   if (result.status === "error" || result.lastMessage == null) {
     throw new SegmentError(result.error ?? "The guided review agent returned nothing.", agent.id);
@@ -244,7 +315,11 @@ async function askAgent<Answer>(
   try {
     parsed = answer.parse(result.lastMessage);
   } catch (error) {
-    throw new SegmentError(`The guided review agent's answer was unusable: ${messageOf(error)}`, agent.id);
+    throw new SegmentError(
+      `The guided review agent's answer was unusable: ${messageOf(error)}`,
+      agent.id,
+      result.lastMessage,
+    );
   }
   await agent.archive().catch(() => undefined);
   return parsed;

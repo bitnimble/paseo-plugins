@@ -3,7 +3,6 @@ import { useRpc } from "@getpaseo/plugin/client";
 import {
   Icon,
   Modal,
-  ScrollView,
   SettingsCard,
   SettingsRow,
   SettingsSelect,
@@ -18,6 +17,7 @@ import { type AgentForm, type AgentPicks, type ProviderChoice, agentForm } from 
 import { type AgentChoice, type DraftComment, type Reviewer, agentsRpc } from "../shared/protocol";
 import { Button, ToolbarTrigger } from "./controls";
 import { MenuItem } from "./menu";
+import { BrowserBack, ModelOptions } from "./model-menu";
 import { useProviders } from "./settings";
 import type { Review } from "./use-review";
 
@@ -262,45 +262,20 @@ function ModelBrowser({
   const leavesBrowser = provider == null || only != null;
   return (
     <View style={{ borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface1 }}>
-      <Pressable
-        accessibilityRole="button"
+      <BrowserBack
+        theme={theme}
+        title={title}
         accessibilityLabel={leavesBrowser ? "Back to the agent options" : "Back to the providers"}
         onPress={leavesBrowser ? onClose : () => setOpened(null)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-        }}
-      >
-        <Icon name="ChevronLeft" size={16} color={theme.colors.foregroundMuted} />
-        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.colors.foreground }}>{title}</Text>
-      </Pressable>
-      <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ paddingVertical: 4 }}>
-        {provider == null
-          ? providers.map((choice) => (
-              <MenuItem
-                key={choice.provider}
-                theme={theme}
-                label={choice.label}
-                hint={`${choice.models.length} ${choice.models.length === 1 ? "model" : "models"}`}
-                trailing="ChevronRight"
-                onPress={() => setOpened(choice.provider)}
-              />
-            ))
-          : provider.models.map((model) => (
-              <MenuItem
-                key={model.value}
-                theme={theme}
-                label={model.modelLabel}
-                checked={model.value === value}
-                onPress={() => onPick(model.value)}
-              />
-            ))}
-      </ScrollView>
+      />
+      <ModelOptions
+        theme={theme}
+        providers={providers}
+        opened={provider}
+        value={value}
+        onOpen={setOpened}
+        onPick={onPick}
+      />
     </View>
   );
 }

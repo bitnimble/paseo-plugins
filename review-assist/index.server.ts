@@ -44,7 +44,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const settings = server.registerSettings(reviewSettings);
   const store = new GuideStore(cacheDirectory(), async () => {
     const state = await settings.read();
-    return state.status === "ready" ? state.values.model : "";
+    return state.status === "ready" ? state.values : { model: "", backupModel: "" };
   });
   const states = new ReviewStates(cacheDirectory());
   const trees = new TreeFiles();

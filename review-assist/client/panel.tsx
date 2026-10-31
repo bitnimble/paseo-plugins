@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { z } from "zod";
 import { DEFAULT_BRANCH_MODE, type DiffMode, diffModeSchema, modeKey } from "../shared/protocol";
-import { type ViewOptions, reviewSettings } from "../shared/settings";
+import { type ReviewSettings, type ViewOptions, reviewSettings } from "../shared/settings";
 import { IconButton, Tabs } from "./controls";
 import type { FoldCommand } from "./diff-list";
 import { ErrorBoundary } from "./error-boundary";
@@ -12,6 +12,7 @@ import { FullView } from "./full-view";
 import { GuidedView } from "./guided-view";
 import { Dropdown, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./menu";
 import { ModeMenu } from "./mode-menu";
+import { ModelMenu } from "./model-menu";
 import { MONOSPACE, compactCount } from "./palette";
 import { fitsPane } from "./panes";
 import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
@@ -21,7 +22,8 @@ import { useCodeIntelligence } from "./use-code";
 import { commentStore, useReview } from "./use-review";
 import { isMonacoSupported } from "./web";
 
-type Menu = "mode" | "view";
+type Menu = "mode" | "view" | "model";
+type SavedOptions = ViewOptions & Pick<ReviewSettings, "model">;
 
 const placeSchema = z.object({
   mode: diffModeSchema,
@@ -39,7 +41,7 @@ const TABS: readonly { value: Tab; label: string }[] = [
   { value: "full", label: "Full diff" },
 ];
 
-const VIEW_KEYS = ["layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth", "showPane"] as const;
+const SAVED_KEYS = ["model", "layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth", "showPane"] as const;
 const DEFAULT_SETTINGS = reviewSettings.schema.parse({});
 
 export function ReviewPanel(props: PluginWorkspacePanelProps) {
@@ -72,7 +74,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const narrow = layout.compact || !fits;
   const [drawerOpen, setDrawerOpen] = useState(false);
   if (!narrow && drawerOpen) setDrawerOpen(false);
-  const { view, setView } = useViewOptions(narrow);
+  const { view, model, setView, setModel } = useSavedOptions(narrow);
   const review = useReview({
     workspaceId,
     directory: workspace?.directory ?? null,
@@ -116,6 +118,10 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const pickMode = (next: DiffMode) => {
     if (modeKey(next) !== modeKey(mode)) setPlace({ ...place, mode: next, section: 0 });
     setDrawerOpen(false);
+    setMenu(null);
+  };
+  const pickModel = (next: string) => {
+    setModel(next);
     setMenu(null);
   };
   const foldAll = (collapsed: boolean) => {
@@ -183,6 +189,14 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         {comments.comments.length === 0 ? null : (
           <SendComments theme={theme} workspaceId={workspaceId} comments={comments.comments} submit={review.submit} />
         )}
+        <ModelMenu
+          theme={theme}
+          value={model}
+          toolbar={toolbar}
+          open={menu === "model"}
+          onOpenChange={openMenu("model")}
+          onPick={pickModel}
+        />
         <Dropdown
           theme={theme}
           label="View"
@@ -323,23 +337,28 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
 }
 
 /** Persisted in the host settings; narrow layouts always show the unified layout. */
-function useViewOptions(narrow: boolean): { view: ViewOptions; setView(change: Partial<ViewOptions>): void } {
+function useSavedOptions(narrow: boolean): {
+  view: ViewOptions;
+  model: string;
+  setView(change: Partial<ViewOptions>): void;
+  setModel(model: string): void;
+} {
   const settings = useSettings(reviewSettings);
-  const [pending, setPending] = useState<Partial<ViewOptions>>({});
+  const [pending, setPending] = useState<Partial<SavedOptions>>({});
   const savedAgainst = useRef<string | null>(null);
   const stored = settings.status === "ready" ? settings.values : DEFAULT_SETTINGS;
-  const { layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane } = stored;
+  const { model, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane } = { ...stored, ...pending };
   // Every file row is memoised on it, so a new object per render re-renders them all.
   const view = useMemo(
     (): ViewOptions => ({
-      layout: narrow ? "unified" : (pending.layout ?? layout),
-      wrapLines: pending.wrapLines ?? wrapLines,
-      hideWhitespace: pending.hideWhitespace ?? hideWhitespace,
-      fileList: pending.fileList ?? fileList,
-      paneWidth: pending.paneWidth ?? paneWidth,
-      showPane: pending.showPane ?? showPane,
+      layout: narrow ? "unified" : layout,
+      wrapLines,
+      hideWhitespace,
+      fileList,
+      paneWidth,
+      showPane,
     }),
-    [narrow, pending, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane],
+    [narrow, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane],
   );
 
   useEffect(() => {
@@ -357,13 +376,15 @@ function useViewOptions(narrow: boolean): { view: ViewOptions; setView(change: P
 
   return {
     view,
+    model,
     setView: (change) => setPending((current) => ({ ...current, ...change })),
+    setModel: (next) => setPending((current) => ({ ...current, model: next })),
   };
 }
 
-function withoutStored(pending: Partial<ViewOptions>, stored: ViewOptions): Partial<ViewOptions> {
+function withoutStored(pending: Partial<SavedOptions>, stored: SavedOptions): Partial<SavedOptions> {
   const unsaved = { ...pending };
-  for (const key of VIEW_KEYS) {
+  for (const key of SAVED_KEYS) {
     if (unsaved[key] === stored[key]) delete unsaved[key];
   }
   return unsaved;

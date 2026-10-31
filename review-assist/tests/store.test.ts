@@ -23,33 +23,38 @@ function repoWithChanges(): string {
   return dir;
 }
 
-function fakePaseo(answer: string) {
+const READY_ENTRIES = [
+  { provider: "fake", status: "ready", models: [{ id: "model", label: "Model", isDefault: true }] },
+];
+
+function fakePaseo(
+  answer: string | ((model: string) => string),
+  waitForReady: () => Promise<{ entries: readonly unknown[] }> = async () => ({ entries: READY_ENTRIES }),
+) {
   const calls = { prompts: [] as string[], providers: [] as string[], archived: 0 };
-  const agent = {
-    id: "agent-1",
-    waitForFinish: async () => ({ status: "idle", lastMessage: answer, error: null, final: null }),
-    archive: async () => {
-      calls.archived++;
-      return { archivedAt: new Date().toISOString() };
-    },
+  const archive = async () => {
+    calls.archived++;
+    return { archivedAt: new Date().toISOString() };
   };
   const paseo = {
-    providers: {
-      waitForReady: async () => ({
-        entries: [{ provider: "fake", status: "ready", models: [{ id: "model", label: "Model", isDefault: true }] }],
-      }),
-    },
+    providers: { waitForReady },
     workspaces: {
       ref: () => ({
         agents: {
           create: async (options: { prompt: string; config: { provider: string } }) => {
             calls.prompts.push(options.prompt);
             calls.providers.push(options.config.provider);
-            return agent;
+            const lastMessage = typeof answer === "string" ? answer : answer(options.config.provider);
+            return {
+              id: "agent-1",
+              waitForFinish: async () => ({ status: "idle", lastMessage, error: null, final: null }),
+              archive,
+            };
           },
         },
       }),
     },
+    agents: { ref: () => ({ archive }) },
   };
   return { paseo: paseo as unknown as PluginHandlerContext["paseo"], calls };
 }
@@ -74,7 +79,7 @@ test("a generation runs one agent, stores a private guide and archives the agent
   const repo = repoWithChanges();
   const cache = scratchDirectory();
   const { paseo, calls } = fakePaseo(ANSWER);
-  const store = new GuideStore(cache, async () => "");
+  const store = new GuideStore(cache, async () => ({ model: "", backupModel: "" }));
 
   const job = store.generate({ ...target(repo), workspaceId: "w" }, paseo);
   assert.equal(store.generate({ ...target(repo), workspaceId: "w" }, paseo), job);
@@ -124,7 +129,7 @@ test("viewed marks and comments persist through concurrent writes and a new guid
   await save({ ...comment, body: "Why shout two?" });
   await states.apply(slot, { kind: "comments", remove: ["c2"], save: [] });
 
-  const store = new GuideStore(cache, async () => "fake/model");
+  const store = new GuideStore(cache, async () => ({ model: "fake/model", backupModel: "" }));
   store.generate({ ...slot, workspaceId: "w" }, fakePaseo(ANSWER).paseo);
   await settled(store, repo);
 
@@ -142,7 +147,7 @@ test("viewed marks and comments persist through concurrent writes and a new guid
 test("an unusable answer fails the job and keeps the agent for inspection", async () => {
   const repo = repoWithChanges();
   const { paseo, calls } = fakePaseo("I could not do it.");
-  const store = new GuideStore(scratchDirectory(), async () => "");
+  const store = new GuideStore(scratchDirectory(), async () => ({ model: "", backupModel: "" }));
   store.generate({ ...target(repo), workspaceId: "w" }, paseo);
   const { job, guide } = await settled(store, repo);
 
@@ -151,4 +156,62 @@ test("an unusable answer fails the job and keeps the agent for inspection", asyn
   assert.equal(job?.agentId, "agent-1");
   assert.equal(guide, null);
   assert.equal(calls.archived, 0);
+});
+
+const OTHER_READY = [
+  { provider: "fake", status: "ready", models: [{ id: "model", label: "Model", isDefault: true }] },
+  { provider: "other", status: "ready", models: [{ id: "backup", label: "Backup", isDefault: true }] },
+];
+
+test("a guide records the backup when the first model's run failed", async () => {
+  const repo = repoWithChanges();
+  const { paseo, calls } = fakePaseo(
+    (model) => (model === "fake/model" ? "You've hit your limit" : ANSWER),
+    async () => ({ entries: OTHER_READY }),
+  );
+  const store = new GuideStore(scratchDirectory(), async () => ({ model: "fake/model", backupModel: "other/backup" }));
+  store.generate({ ...target(repo), workspaceId: "w" }, paseo);
+  const { job, guide } = await settled(store, repo);
+
+  assert.equal(job, null);
+  assert.equal(guide?.model, "other/backup");
+  assert.deepEqual(calls.providers, ["fake/model", "other/backup"]);
+  assert.equal(calls.archived, 2);
+});
+
+test("a configured model whose provider isn't ready goes straight to the backup", async () => {
+  const repo = repoWithChanges();
+  const { paseo, calls } = fakePaseo(ANSWER, async () => ({
+    entries: [{ ...OTHER_READY[0], status: "error" }, OTHER_READY[1]],
+  }));
+  const store = new GuideStore(scratchDirectory(), async () => ({ model: "fake/model", backupModel: "other/backup" }));
+  store.generate({ ...target(repo), workspaceId: "w" }, paseo);
+  const { guide } = await settled(store, repo);
+
+  assert.equal(guide?.model, "other/backup");
+  assert.deepEqual(calls.providers, ["other/backup"]);
+});
+
+test("providers that never report ready still leave the configured model to run", async () => {
+  const repo = repoWithChanges();
+  const { paseo, calls } = fakePaseo(ANSWER, async () => {
+    throw new Error("timed out");
+  });
+  const store = new GuideStore(scratchDirectory(), async () => ({ model: "fake/model", backupModel: "" }));
+  store.generate({ ...target(repo), workspaceId: "w" }, paseo);
+  const { guide } = await settled(store, repo);
+
+  assert.equal(guide?.model, "fake/model");
+  assert.deepEqual(calls.providers, ["fake/model"]);
+});
+
+test("no ready provider and nothing configured fails with where to pick a model", async () => {
+  const repo = repoWithChanges();
+  const { paseo, calls } = fakePaseo(ANSWER, async () => ({ entries: [] }));
+  const store = new GuideStore(scratchDirectory(), async () => ({ model: "", backupModel: "" }));
+  store.generate({ ...target(repo), workspaceId: "w" }, paseo);
+  const { job } = await settled(store, repo);
+
+  assert.equal(job?.status === "failed" ? job.error : "", "No agent provider is ready. Pick a model under Settings → Plugins → Review assist.");
+  assert.deepEqual(calls.providers, []);
 });

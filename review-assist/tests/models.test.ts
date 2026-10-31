@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type ProviderEntry, agentForm, automaticChoice, modelChoices, providerChoices } from "../shared/models";
+import {
+  type ProviderEntry,
+  agentForm,
+  automaticChoice,
+  modelChoices,
+  modelsToTry,
+  providerChoices,
+} from "../shared/models";
 
 const provider = (
   name: string,
@@ -86,6 +93,30 @@ test("models group under their ready provider, which is left out with none to pi
     providers.map(({ provider, label, models }) => [provider, label, models.map(({ value, modelLabel }) => [value, modelLabel])]),
     [["codex", "Codex", [["codex/gpt-6-astra", "gpt-6-astra"], ["codex/gpt-6-sol", "gpt-6-sol"], ["codex/gpt-6-luna", "gpt-6-luna"]]]],
   );
+});
+
+test("the configured model runs first, then the backup, both only if a ready provider offers them", () => {
+  const down = provider("claude", CLAUDE_IDS, { status: "error" });
+  assert.deepEqual(modelsToTry([CODEX, provider("claude", CLAUDE_IDS)], " claude/claude-opus-5-5 ", " codex/gpt-6-sol "), [
+    "claude/claude-opus-5-5",
+    "codex/gpt-6-sol",
+  ]);
+  assert.deepEqual(modelsToTry([CODEX, down], "claude/claude-opus-5-5", "codex/gpt-6-sol"), ["codex/gpt-6-sol"]);
+  assert.deepEqual(modelsToTry([CODEX, down], "codex/gpt-6-sol", "claude/claude-opus-5-5"), ["codex/gpt-6-sol"]);
+});
+
+test("with neither model offered both are tried, so an uncatalogued one still gets its provider's error", () => {
+  assert.deepEqual(modelsToTry([CODEX], "other/one", "other/two"), ["other/one", "other/two"]);
+  assert.deepEqual(modelsToTry([], "other/one", ""), ["other/one"]);
+});
+
+test("Automatic resolves before the backup, a duplicate runs once, and nothing to run gives no models", () => {
+  assert.deepEqual(modelsToTry([CODEX], "", "codex/gpt-6-sol"), ["codex/gpt-6-luna", "codex/gpt-6-sol"]);
+  assert.deepEqual(modelsToTry([CODEX], "codex/gpt-6-sol", " codex/gpt-6-sol"), ["codex/gpt-6-sol"]);
+  assert.deepEqual(modelsToTry([CODEX], "", "codex/gpt-6-luna"), ["codex/gpt-6-luna"]);
+  assert.deepEqual(modelsToTry([CODEX], "  ", "gone/model"), ["codex/gpt-6-luna"]);
+  assert.deepEqual(modelsToTry([], "", ""), []);
+  assert.deepEqual(modelsToTry([], "", "other/two"), ["other/two"]);
 });
 
 test("a preferred model several providers offer comes from the first of them", () => {

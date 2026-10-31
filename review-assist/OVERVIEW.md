@@ -100,8 +100,9 @@ syntax highlighting works regardless. Trust is decided per Paseo project, coveri
 workspaces and worktrees, and kept on the daemon, which refuses to start a language server for a
 project that isn't trusted and stops a project's running servers once it is untrusted.
 
-Press **Generate guided review**. The diff goes to an agent on the model picked in the plugin's
-settings, and so to that model's provider. The agent runs in the reviewed workspace while it works,
+Press **Generate guided review**. The diff goes to an agent on the model picked with **Model** in
+the toolbar, and so to that model's provider. **Model** lists **Automatic** and the ready providers;
+pressing a provider shows its models. The agent runs in the reviewed workspace while it works,
 so you can open it to follow along, and it is archived once it answers. A diff too large for one
 agent is split by path into parts, one agent each, up to four at a time, and one more agent merges
 and orders their sections; a part whose agent fails leaves its lines under **Other changes**. The result is
@@ -130,9 +131,15 @@ changed since stops the send until you edit or delete it. With only suggestions,
 
 ## Settings
 
-**Settings → Plugins → Review assist → Model** picks the agent model. **Automatic** uses the first
-of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and GPT-6-Sol that a ready provider offers, and
-otherwise the first ready provider's default model.
+**Settings → Plugins → Review assist → Model** picks the agent model, as **Model** in the Review
+toolbar does. **Automatic** uses the first of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and
+GPT-6-Sol that a ready provider offers, and otherwise the first ready provider's default model.
+
+**Backup model** is off by default. When set, it takes over if the model's provider isn't ready, its
+agent can't start or fails, as when it's out of quota, or it answers with something unusable, and the
+diff then goes to the backup model's provider too. An agent waiting on a permission request, out of
+time, or that Paseo lost track of isn't retried on the backup. Once a model fails, the rest of that
+generation stays on the backup.
 
 **Updates**, on the same page, asks Paseo whether the source the plugin was installed from has a
 newer version, and links to the changes. Nothing is installed until you press **Update**, which runs
