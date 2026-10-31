@@ -1,7 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import {
-  Icon,
   Modal,
   SettingsCard,
   SettingsRow,
@@ -11,14 +10,14 @@ import {
 } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { isEdit } from "../shared/comments";
 import { type AgentForm, type AgentPicks, type ProviderChoice, agentForm } from "../shared/models";
 import { type AgentChoice, type DraftComment, type Reviewer, agentsRpc } from "../shared/protocol";
-import { Button, ToolbarTrigger } from "./controls";
+import { Button, FieldTrigger, ToolbarTrigger } from "./controls";
 import { MenuItem } from "./menu";
 import { BrowserBack, ModelOptions } from "./model-menu";
-import { useProviders } from "./settings";
+import { useProviders } from "./use-providers";
 import type { Review } from "./use-review";
 
 const DEFAULT_PICKS: AgentPicks = { model: null, mode: null, thinking: null };
@@ -199,25 +198,13 @@ function NewAgent({
       <Text style={muted}>No agent session is available in this workspace. Submitting comments will start a new agent with the review comments.</Text>
       <SettingsCard>
         <SettingsRow label="Model">
-          <Pressable
-            accessibilityRole="button"
+          <FieldTrigger
+            theme={theme}
+            label={modelLabel}
             accessibilityLabel={`Model: ${modelLabel}`}
+            chevron="ChevronRight"
             onPress={() => setBrowsing(true)}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              backgroundColor: pressed ? theme.colors.surface2 : "transparent",
-            })}
-          >
-            <Text style={{ fontSize: 14, color: theme.colors.foreground }}>{modelLabel}</Text>
-            <Icon name="ChevronRight" size={14} color={theme.colors.foregroundMuted} />
-          </Pressable>
+          />
         </SettingsRow>
         {form.config.modeId == null ? null : (
           <SettingsSelect

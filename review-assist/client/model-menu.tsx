@@ -4,7 +4,7 @@ import { type ReactNode, type RefObject, useState } from "react";
 import { Pressable, Text, type View } from "react-native";
 import { type ProviderChoice, automaticChoice, modelChoices, providerChoices } from "../shared/models";
 import { Dropdown, MenuItem, MenuSeparator } from "./menu";
-import { useProviders } from "./settings";
+import { useProviders } from "./use-providers";
 
 export function BrowserBack({
   theme,
@@ -95,16 +95,23 @@ export function ModelOptions({
 
 export function ModelMenu({
   theme,
+  name = "Model",
   value,
-  toolbar,
+  unset = "automatic",
+  field,
+  bounds,
   open,
   onOpenChange,
   onPick,
 }: {
   theme: PluginTheme;
-  /** `provider/model`; empty is "Automatic". */
+  name?: string;
+  /** `provider/model`; empty is `unset`. */
   value: string;
-  toolbar: RefObject<View | null>;
+  unset?: "automatic" | "none";
+  /** A form control's look, with a label naming the provider. */
+  field?: { disabled: boolean };
+  bounds: RefObject<View | null>;
   open: boolean;
   onOpenChange(open: boolean): void;
   onPick(value: string): void;
@@ -113,14 +120,20 @@ export function ModelMenu({
   const entries = query.data?.entries ?? [];
   const providers = providerChoices(entries);
   const choices = modelChoices(entries);
-  const label = value === "" ? "Automatic" : (choices.find((choice) => choice.value === value)?.modelLabel ?? value);
+  const chosen = choices.find((choice) => choice.value === value);
+  const unsetLabel = unset === "automatic" ? "Automatic" : "None";
+  const unsetHint = unset === "automatic" ? automaticChoice(choices)?.label : undefined;
+  const unsetText = field != null && unsetHint != null ? `${unsetLabel} (${unsetHint})` : unsetLabel;
+  const chosenText = (field != null ? chosen?.label : chosen?.modelLabel) ?? value;
+  const label = value === "" ? unsetText : chosenText;
   return (
     <Dropdown
       theme={theme}
       label={label}
-      accessibilityLabel={`Model: ${label}`}
+      accessibilityLabel={`${name}: ${label}`}
       icon="Sparkles"
-      toolbar={toolbar}
+      field={field}
+      bounds={bounds}
       open={open}
       onOpenChange={(next) => {
         // Default cancels a first fetch still waiting on discovery, restarting its wait.
@@ -132,7 +145,8 @@ export function ModelMenu({
         theme={theme}
         providers={providers}
         value={value}
-        automaticHint={automaticChoice(choices)?.label}
+        unsetLabel={unsetLabel}
+        unsetHint={unsetHint}
         // A cached empty list may predate a provider becoming ready.
         finding={query.isPending || (query.isFetching && providers.length === 0)}
         onPick={onPick}
@@ -145,14 +159,16 @@ function ModelList({
   theme,
   providers,
   value,
-  automaticHint,
+  unsetLabel,
+  unsetHint,
   finding,
   onPick,
 }: {
   theme: PluginTheme;
   providers: readonly ProviderChoice[];
   value: string;
-  automaticHint: string | undefined;
+  unsetLabel: string;
+  unsetHint: string | undefined;
   finding: boolean;
   onPick(value: string): void;
 }) {
@@ -179,8 +195,8 @@ function ModelList({
       >
         <MenuItem
           theme={theme}
-          label="Automatic"
-          hint={automaticHint}
+          label={unsetLabel}
+          hint={unsetHint}
           checked={value === ""}
           onPress={() => onPick("")}
         />

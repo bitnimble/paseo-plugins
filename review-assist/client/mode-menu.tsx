@@ -21,7 +21,7 @@ export function ModeMenu({
   directory,
   mode,
   base,
-  toolbar,
+  bounds,
   open,
   onOpenChange,
   onPick,
@@ -31,7 +31,7 @@ export function ModeMenu({
   mode: DiffMode;
   /** The live diff's base, once it has loaded for `mode`. */
   base: DiffBase | null;
-  toolbar: RefObject<View | null>;
+  bounds: RefObject<View | null>;
   open: boolean;
   onOpenChange(open: boolean): void;
   onPick(mode: DiffMode): void;
@@ -47,7 +47,7 @@ export function ModeMenu({
           ? defaultLabel
           : `vs ${mode.branch}`;
   return (
-    <Dropdown theme={theme} label={label} toolbar={toolbar} open={open} onOpenChange={onOpenChange}>
+    <Dropdown theme={theme} label={label} bounds={bounds} open={open} onOpenChange={onOpenChange}>
       <MenuItem
         theme={theme}
         label={defaultLabel}

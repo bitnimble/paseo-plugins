@@ -10,7 +10,7 @@ import type { FoldCommand } from "./diff-list";
 import { ErrorBoundary } from "./error-boundary";
 import { FullView } from "./full-view";
 import { GuidedView } from "./guided-view";
-import { Dropdown, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./menu";
+import { Dropdown, MENU_HOST_Z_INDEX, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./menu";
 import { ModeMenu } from "./mode-menu";
 import { ModelMenu } from "./model-menu";
 import { MONOSPACE, compactCount } from "./palette";
@@ -139,7 +139,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         ref={toolbar}
         collapsable={false}
         style={{
-          zIndex: 10,
+          zIndex: MENU_HOST_Z_INDEX,
           flexDirection: "row",
           flexWrap: "wrap",
           alignItems: "center",
@@ -173,7 +173,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           directory={workspace.directory}
           mode={mode}
           base={live.status === "ready" ? live.base : null}
-          toolbar={toolbar}
+          bounds={toolbar}
           open={menu === "mode"}
           onOpenChange={openMenu("mode")}
           onPick={pickMode}
@@ -192,7 +192,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         <ModelMenu
           theme={theme}
           value={model}
-          toolbar={toolbar}
+          bounds={toolbar}
           open={menu === "model"}
           onOpenChange={openMenu("model")}
           onPick={pickModel}
@@ -201,7 +201,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           theme={theme}
           label="View"
           icon="SlidersHorizontal"
-          toolbar={toolbar}
+          bounds={toolbar}
           open={menu === "view"}
           onOpenChange={openMenu("view")}
         >

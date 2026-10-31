@@ -1,46 +1,58 @@
-import { type PluginSurfaceProps, usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
+import { type PluginSurfaceProps, useRpc, useSettings } from "@getpaseo/plugin/client";
 import {
   ExternalLink,
   SettingsAction,
   SettingsCard,
   SettingsRow,
   SettingsSection,
-  SettingsSelect,
 } from "@getpaseo/plugin/client/ui";
-import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Text } from "react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { Text, View } from "react-native";
 import { messageOf } from "../shared/errors";
-import { type ModelChoice, automaticChoice, modelChoices } from "../shared/models";
 import { type UpdateStatus, updateRpc, updateStatusRpc } from "../shared/protocol";
 import { reviewSettings } from "../shared/settings";
+import { MENU_HOST_Z_INDEX, MenuBackdrop } from "./menu";
+import { ModelMenu } from "./model-menu";
 
 const UPDATE_KEY = ["review-update"];
 const UPDATING_POLL_MS = 3000;
 const RESTART_GRACE_MS = 30_000;
 
+const MODEL_ROWS = [
+  {
+    key: "model",
+    label: "Model",
+    hint: "The agent that splits a diff into sections. Runs once per generation, in the reviewed workspace.",
+    unset: "automatic",
+  },
+  {
+    key: "backupModel",
+    label: "Backup model",
+    hint: "Takes over when the model's provider isn't ready or a run on it fails, such as when it's out of quota. With None, the generation fails instead.",
+    unset: "none",
+  },
+] as const;
+type ModelKey = (typeof MODEL_ROWS)[number]["key"];
+
 export function ReviewSettingsScreen(props: PluginSurfaceProps) {
+  const [menu, setMenu] = useState<ModelKey | null>(null);
   return (
-    <>
-      <ModelSettings {...props} />
+    <View>
+      {menu == null ? null : <MenuBackdrop fillsWindow onPress={() => setMenu(null)} />}
+      <ModelSettings {...props} menu={menu} onMenu={setMenu} />
       <UpdateSettings />
-    </>
+    </View>
   );
 }
 
-type ProvidersSnapshot = Awaited<ReturnType<ReturnType<typeof usePaseo>["providers"]["waitForReady"]>>;
-
-export function useProviders(enabled = true): UseQueryResult<ProvidersSnapshot> {
-  const paseo = usePaseo();
-  return useQuery({
-    queryKey: ["review-providers"],
-    queryFn: () => paseo.providers.waitForReady({ timeoutMs: 30_000 }),
-    enabled,
-  });
-}
-
-function ModelSettings({ theme }: PluginSurfaceProps) {
+function ModelSettings({
+  theme,
+  menu,
+  onMenu,
+}: PluginSurfaceProps & { menu: ModelKey | null; onMenu(menu: ModelKey | null): void }) {
   const settings = useSettings(reviewSettings);
-  const providers = useProviders();
+  const card = useRef<View>(null);
 
   if (settings.status !== "ready") {
     return (
@@ -50,42 +62,56 @@ function ModelSettings({ theme }: PluginSurfaceProps) {
     );
   }
 
-  const choices = modelChoices(providers.data?.entries ?? []);
-  const automatic = automaticChoice(choices);
-  const { model, backupModel } = settings.values;
-
   return (
-    <SettingsSection title="Guided review">
-      <SettingsCard>
-        <SettingsSelect
-          label="Model"
-          hint="The agent that splits a diff into sections. Runs once per generation, in the reviewed workspace."
-          error={settings.saveError}
-          disabled={settings.saving}
-          value={model}
-          options={[
-            { value: "", label: automatic == null ? "Automatic" : `Automatic (${automatic.label})` },
-            ...savedOptionsNotOffered(model, choices),
-            ...choices,
-          ]}
-          onValueChange={(next) => void settings.save({ ...settings.values, model: next }, settings.revision)}
-        />
-        <SettingsSelect
-          label="Backup model"
-          hint="Takes over when the model's provider isn't ready or a run on it fails, such as when it's out of quota. With None, the generation fails instead."
-          error={settings.saveError}
-          disabled={settings.saving}
-          value={backupModel}
-          options={[{ value: "", label: "None" }, ...savedOptionsNotOffered(backupModel, choices), ...choices]}
-          onValueChange={(next) => void settings.save({ ...settings.values, backupModel: next }, settings.revision)}
-        />
-      </SettingsCard>
-    </SettingsSection>
+    <View
+      // Not a disabled Pressable: its aria-disabled reaches the triggers.
+      onStartShouldSetResponder={() => menu != null}
+      onResponderRelease={() => onMenu(null)}
+      style={{ zIndex: MENU_HOST_Z_INDEX }}
+    >
+      <SettingsSection title="Guided review">
+        {/* Not SettingsCard: it clips the menus at its edge. */}
+        <View
+          ref={card}
+          collapsable={false}
+          style={{
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface1,
+          }}
+        >
+          {MODEL_ROWS.map(({ key, label, hint, unset }, index) => (
+            <View
+              key={key}
+              style={{
+                // Upper rows on top: a menu opens down over the rows after it.
+                zIndex: MODEL_ROWS.length - index,
+                ...(index === 0 ? {} : { borderTopWidth: 1, borderTopColor: theme.colors.border }),
+              }}
+            >
+              <SettingsRow label={label} hint={hint} error={settings.saveError}>
+                <ModelMenu
+                  theme={theme}
+                  name={label}
+                  value={settings.values[key]}
+                  unset={unset}
+                  field={{ disabled: settings.saving }}
+                  bounds={card}
+                  open={menu === key}
+                  onOpenChange={(open) => onMenu(open ? key : null)}
+                  onPick={(next) => {
+                    onMenu(null);
+                    void settings.save({ ...settings.values, [key]: next }, settings.revision);
+                  }}
+                />
+              </SettingsRow>
+            </View>
+          ))}
+        </View>
+      </SettingsSection>
+    </View>
   );
-}
-
-function savedOptionsNotOffered(saved: string, choices: readonly ModelChoice[]): { value: string; label: string }[] {
-  return saved === "" || choices.some((choice) => choice.value === saved) ? [] : [{ value: saved, label: saved }];
 }
 
 function UpdateSettings() {

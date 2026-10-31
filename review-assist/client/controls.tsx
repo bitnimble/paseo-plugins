@@ -92,6 +92,51 @@ export function ToolbarTrigger({
   );
 }
 
+export function FieldTrigger({
+  theme,
+  label,
+  accessibilityLabel = label,
+  chevron = "ChevronDown",
+  open,
+  disabled = false,
+  onPress,
+}: {
+  theme: PluginTheme;
+  label: string;
+  accessibilityLabel?: string;
+  chevron?: string;
+  open?: boolean;
+  disabled?: boolean;
+  onPress(): void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={open == null ? undefined : { expanded: open }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        opacity: disabled ? 0.5 : 1,
+        backgroundColor: pressed || open === true ? theme.colors.surface2 : "transparent",
+      })}
+    >
+      <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 14, color: theme.colors.foreground }}>
+        {label}
+      </Text>
+      <Icon name={chevron} size={14} color={theme.colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
 export function IconButton({
   theme,
   icon,

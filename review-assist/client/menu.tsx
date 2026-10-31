@@ -1,19 +1,23 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, type RefObject, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { ToolbarTrigger } from "./controls";
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { FieldTrigger, ToolbarTrigger } from "./controls";
 import { menuOffset } from "./menu-placement";
 
 const NARROW_WIDTH = 720;
+const BACKDROP_Z_INDEX = 5;
+/** For the view holding the dropdowns, whose menus must paint over the backdrop and what follows. */
+export const MENU_HOST_Z_INDEX = 10;
 
-/** Render `MenuBackdrop` once under the toolbar so a press anywhere else in the panel closes it. */
+/** Render `MenuBackdrop` once, behind the dropdowns' host, so a press elsewhere closes it. No ancestor may clip the menu. */
 export function Dropdown({
   theme,
   label,
   accessibilityLabel,
   icon,
-  toolbar,
+  field,
+  bounds,
   open,
   onOpenChange,
   children,
@@ -22,8 +26,9 @@ export function Dropdown({
   label: string;
   accessibilityLabel?: string;
   icon?: string;
+  field?: { disabled: boolean };
   /** Keeps the menu inside this view, which must contain the dropdown. */
-  toolbar: RefObject<View | null>;
+  bounds: RefObject<View | null>;
   open: boolean;
   onOpenChange(open: boolean): void;
   children: ReactNode;
@@ -35,10 +40,10 @@ export function Dropdown({
     onOpenChange(!open);
   };
   const place = (menuWidth: number): void => {
-    const within = toolbar.current;
+    const within = bounds.current;
     if (within == null) return;
     within.measure((_x, _y, width) => {
-      // Toolbar-relative: window coordinates put the menu off screen on a phone, and web's onLayout x goes stale on a move.
+      // Relative to `bounds`: window coordinates put the menu off screen on a phone, and web's onLayout x goes stale on a move.
       trigger.current?.measureLayout(
         within,
         (left) => setOffset(menuOffset(left, width, menuWidth)),
@@ -48,17 +53,30 @@ export function Dropdown({
   };
   return (
     <View ref={trigger} collapsable={false}>
-      <ToolbarTrigger
-        theme={theme}
-        label={label}
-        accessibilityLabel={accessibilityLabel}
-        icon={icon}
-        open={open}
-        onPress={toggle}
-      />
+      {field == null ? (
+        <ToolbarTrigger
+          theme={theme}
+          label={label}
+          accessibilityLabel={accessibilityLabel}
+          icon={icon}
+          open={open}
+          onPress={toggle}
+        />
+      ) : (
+        <FieldTrigger
+          theme={theme}
+          label={label}
+          accessibilityLabel={accessibilityLabel}
+          open={open}
+          disabled={field.disabled}
+          onPress={toggle}
+        />
+      )}
       {open ? (
         <View
           accessibilityRole="menu"
+          // Else a press in the menu's gaps reaches a responder behind it, which may close the menu.
+          onStartShouldSetResponder={() => true}
           onLayout={(event) => place(event.nativeEvent.layout.width)}
           style={{
             position: "absolute",
@@ -85,13 +103,18 @@ export function Dropdown({
   );
 }
 
-export function MenuBackdrop({ onPress }: { onPress(): void }) {
+export function MenuBackdrop({ fillsWindow = false, onPress }: { fillsWindow?: boolean; onPress(): void }) {
   return (
     <Pressable
       accessibilityLabel="Dismiss review menu"
       focusable={false}
       onPress={onPress}
-      style={[StyleSheet.absoluteFill, { zIndex: 5 }]}
+      style={[
+        StyleSheet.absoluteFill,
+        { zIndex: BACKDROP_Z_INDEX },
+        // RN's types lack "fixed"; react-native-web passes it through.
+        fillsWindow && Platform.OS === "web" ? { position: "fixed" as "absolute" } : null,
+      ]}
     />
   );
 }

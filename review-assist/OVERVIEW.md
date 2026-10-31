@@ -135,7 +135,7 @@ changed since stops the send until you edit or delete it. With only suggestions,
 toolbar does. **Automatic** uses the first of Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6-Luna and
 GPT-6-Sol that a ready provider offers, and otherwise the first ready provider's default model.
 
-**Backup model** is off by default. When set, it takes over if the model's provider isn't ready, its
+**Backup model** is **None** by default. When set, it takes over if the model's provider isn't ready, its
 agent can't start or fails, as when it's out of quota, or it answers with something unusable, and the
 diff then goes to the backup model's provider too. An agent waiting on a permission request, out of
 time, or that Paseo lost track of isn't retried on the backup. Once a model fails, the rest of that
