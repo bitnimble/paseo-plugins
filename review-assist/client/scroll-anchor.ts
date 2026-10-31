@@ -19,6 +19,22 @@ export type ScrollAnchor = z.infer<typeof scrollAnchorSchema>;
 
 export const SCROLL_PERSIST_MS = 500;
 
+export function useRestoreGate(key: unknown): { markRestored: () => void; hasRestored: () => boolean } {
+  const done = useRef(false);
+  const seen = useRef(key);
+  // Reset in render, not an effect: a child's onRestored effect runs before a parent effect and would be clobbered.
+  if (seen.current !== key) {
+    seen.current = key;
+    done.current = false;
+  }
+  return {
+    markRestored: () => {
+      done.current = true;
+    },
+    hasRestored: () => done.current,
+  };
+}
+
 export function useDebouncedCallback<T extends unknown[]>(fn: (...args: T) => void, ms: number): (...args: T) => void {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<T | null>(null);

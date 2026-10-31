@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { fullBlocks } from "../shared/guide";
@@ -10,7 +10,7 @@ import type { CommentStore, FoldCommand, ScrollTarget } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
 import { FileList } from "./panes";
 import { ReviewSplit } from "./review-split";
-import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback } from "./scroll-anchor";
+import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback, useRestoreGate } from "./scroll-anchor";
 
 export function FullView({
   theme,
@@ -46,13 +46,7 @@ export function FullView({
     return view.fileList === "tree" ? treeOrder(all, (block) => block.file.path) : all;
   }, [diff, view.fileList]);
   const [target, setTarget] = useState<ScrollTarget | null>(null);
-  const restored = useRef(false);
-  const restoreKey = useRef(narrow);
-  // Reset in render, not an effect: child onRestored runs before a parent effect and would be clobbered.
-  if (restoreKey.current !== narrow) {
-    restoreKey.current = narrow;
-    restored.current = false;
-  }
+  const gate = useRestoreGate(narrow);
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const restoreIndex = narrow && scroll != null ? blocks.findIndex((block) => block.file.path === scroll.path) : -1;
   const counts = countByPath(comments.comments);
@@ -99,11 +93,9 @@ export function FullView({
         ? {
             restore: restoreIndex >= 0 ? restoreIndex : undefined,
             restoreReady: stateLoaded,
-            onRestored: () => {
-              restored.current = true;
-            },
+            onRestored: gate.markRestored,
             onTopBlock: (blockIndex: number) => {
-              if (restored.current) persist({ path: blocks[blockIndex].file.path });
+              if (gate.hasRestored()) persist({ path: blocks[blockIndex].file.path });
             },
           }
         : {})}

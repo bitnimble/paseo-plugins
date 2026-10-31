@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Loading } from "@getpaseo/plugin/client/ui";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { type FileBlock, blockCounts, blockFingerprint, guideBlocks } from "../shared/guide";
@@ -13,7 +13,7 @@ import { Button, Notice } from "./controls";
 import type { CommentStore, FileViewing, FoldCommand, ScrollTarget } from "./diff-list";
 import { FileList, Filtered } from "./panes";
 import { ReviewSplit } from "./review-split";
-import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback } from "./scroll-anchor";
+import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback, useRestoreGate } from "./scroll-anchor";
 import type { GuideState, LiveDiff } from "./use-review";
 
 interface GuidedViewProps {
@@ -201,13 +201,7 @@ function Sections({
 }) {
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const [topSection, setTopSection] = useState(0);
-  const restored = useRef(false);
-  const restoreKey = useRef(record.createdAt);
-  // Reset in render, not an effect: child onRestored runs before a parent effect and would be clobbered.
-  if (restoreKey.current !== record.createdAt) {
-    restoreKey.current = record.createdAt;
-    restored.current = false;
-  }
+  const gate = useRestoreGate(record.createdAt);
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
@@ -361,14 +355,12 @@ function Sections({
             blocks: allBlocks,
             restore: restoreIndex >= 0 ? restoreIndex : undefined,
             restoreReady: stateLoaded && allBlocks.length > 0,
-            onRestored: () => {
-              restored.current = true;
-            },
+            onRestored: gate.markRestored,
             heading: (blockIndex: number) =>
               sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex - 1] ? null : headingFor(sectionOfBlock[blockIndex]),
             onTopBlock: (blockIndex: number) => {
               setTopSection(sectionOfBlock[blockIndex]);
-              if (restored.current) persist({ section: sectionOfBlock[blockIndex], path: allBlocks[blockIndex].file.path });
+              if (gate.hasRestored()) persist({ section: sectionOfBlock[blockIndex], path: allBlocks[blockIndex].file.path });
             },
           }
         : { listKey: `${record.createdAt}:${section.id}`, blocks, header: headingFor(index), footer })}
