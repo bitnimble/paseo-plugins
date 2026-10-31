@@ -2,11 +2,12 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Image, Text, type TextStyle, View } from "react-native";
+import { Image, Pressable, Text, type TextStyle, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 import { type BlobPreview, blobRpc } from "../shared/protocol";
 import { Button } from "./controls";
+import { ImageLightbox } from "./image-lightbox";
 import type { CodeSource } from "./monaco/review-monaco";
 import { formatBytes } from "./palette";
 
@@ -98,6 +99,7 @@ function Comparison({
 }
 
 function ImageSide({ theme, label, side, edge }: { theme: PluginTheme; label: string; side: Side; edge: string }) {
+  const [enlarged, setEnlarged] = useState(false);
   const image = side.status === "image" ? side : null;
   const uri = image?.uri ?? null;
   const measured = useImageSize(uri);
@@ -113,25 +115,40 @@ function ImageSide({ theme, label, side, edge }: { theme: PluginTheme; label: st
     size == null || empty
       ? null
       : { width: Math.min(size.width, (MAX_IMAGE_HEIGHT * size.width) / size.height), aspectRatio: size.width / size.height };
+  const caption = (
+    <Text style={{ ...muted, flexShrink: 1 }}>
+      <Text style={{ color: edge }}>{label}</Text> {details}
+    </Text>
+  );
   return (
     <View style={{ flexGrow: 1, flexBasis: 240, maxWidth: fit == null ? undefined : Math.max(fit.width, 240), alignItems: "center", gap: 6 }}>
-      <Text style={muted}>
-        <Text style={{ color: edge }}>{label}</Text> {details}
-      </Text>
+      {caption}
       <View style={{ maxWidth: "100%", borderWidth: 1, borderColor: edge, backgroundColor: theme.colors.surface1 }}>
         {unavailable ? (
           <Text style={{ ...muted, padding: 12 }}>Preview unavailable</Text>
         ) : fit == null ? (
           <View style={{ width: 240, height: 120 }} />
         ) : (
-          <Image
-            accessibilityLabel={`${label}: image`}
-            source={{ uri }}
-            resizeMode="contain"
-            style={{ ...fit, maxWidth: "100%" }}
-          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${label}: view full size`}
+            onPress={() => setEnlarged(true)}
+            style={{ maxWidth: "100%" }}
+          >
+            <Image source={{ uri }} resizeMode="contain" style={{ ...fit, maxWidth: "100%" }} />
+          </Pressable>
         )}
       </View>
+      {enlarged && !unavailable && size != null ? (
+        <ImageLightbox
+          theme={theme}
+          uri={uri}
+          image={size}
+          label={`${label}: image`}
+          caption={caption}
+          onClose={() => setEnlarged(false)}
+        />
+      ) : null}
     </View>
   );
 }

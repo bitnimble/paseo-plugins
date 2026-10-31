@@ -7,12 +7,19 @@ const MAX_SCALE = 3;
 const MAX_FRAME_HEIGHT = 480;
 const STEP = 1.5;
 const FIT_SLACK = 1.01;
+const TAP_SLOP = 8;
 
 export const ScrollLock = createContext<(locked: boolean) => void>(() => undefined);
 
 interface Size {
   readonly width: number;
   readonly height: number;
+}
+
+/** A null height lets the frame grow with the zoom, up to `MAX_FRAME_HEIGHT`. */
+interface Room {
+  readonly width: number;
+  readonly height: number | null;
 }
 
 interface Frame extends Size {
@@ -33,6 +40,8 @@ interface Point {
 interface Gesture {
   readonly base: Camera;
   readonly touches: number;
+  /** One finger from the start, so its release can count as a press. */
+  readonly press: boolean;
   readonly spread: number;
   readonly centre: Point;
   readonly dx: number;
@@ -49,22 +58,26 @@ export function ZoomableImage({
   image,
   label,
   leading,
+  onClose,
 }: {
   theme: PluginTheme;
   uri: string;
   image: Size;
   label: string;
   leading?: ReactNode;
+  /** Makes it fill its parent, fitted both ways, with a close button; a press beside the image closes too. */
+  onClose?: () => void;
 }) {
   const lock = useContext(ScrollLock);
-  const [available, setAvailable] = useState<number | null>(null);
+  const [measured, setMeasured] = useState<Room | null>(null);
   const [zoom, setZoom] = useState<{ uri: string; camera: Camera } | null>(null);
-  const fit = available == null ? 1 : Math.min(1, available / image.width);
+  const room = measured ?? { width: image.width, height: null };
+  const fit = fitFor(image, room);
   const zoomed = zoom?.uri === uri && zoom.camera.scale > fit * FIT_SLACK ? zoom.camera : null;
-  const frame = frameFor(image, available ?? image.width, fit, zoomed?.scale ?? fit);
+  const frame = frameFor(image, room, zoomed?.scale ?? fit);
   const camera = place(zoomed ?? { scale: fit, x: 0, y: 0 }, image, frame);
-  const latest = useRef({ uri, image, frame, camera });
-  latest.current = { uri, image, frame, camera };
+  const latest = useRef({ uri, image, room, frame, camera, onClose });
+  latest.current = { uri, image, room, frame, camera, onClose };
   const gesture = useRef<Gesture | null>(null);
   const setZoomed = (zoomedCamera: Camera | null) =>
     setZoom(zoomedCamera == null ? null : { uri: latest.current.uri, camera: zoomedCamera });
@@ -77,6 +90,7 @@ export function ZoomableImage({
       gesture.current = {
         base: latest.current.camera,
         touches: touches.length,
+        press: gesture.current == null && touches.length === 1,
         spread: spreadOf(touches),
         centre: centreOf(touches),
         dx,
@@ -88,7 +102,7 @@ export function ZoomableImage({
       lock(false);
     };
     return PanResponder.create({
-      onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length >= 2,
+      onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length >= 2 || latest.current.onClose != null,
       onMoveShouldSetPanResponder: (event, { dx, dy }) =>
         event.nativeEvent.touches.length >= 2 ||
         (latest.current.camera.scale > latest.current.frame.fit && Math.abs(dx) + Math.abs(dy) > 2),
@@ -106,21 +120,51 @@ export function ZoomableImage({
           touches.length >= 2
             ? pinch(current, spreadOf(touches), centreOf(touches))
             : { ...current.base, x: current.base.x + dx - current.dx, y: current.base.y + dy - current.dy };
-        setZoomed(settle(moved, latest.current.image, latest.current.frame));
+        setZoomed(settle(moved, latest.current.image, latest.current.room));
       },
-      onPanResponderRelease: end,
+      onPanResponderRelease: (_, { dx, dy }) => {
+        const pressed = gesture.current;
+        end();
+        const { onClose: close, camera: placed, image: drawn } = latest.current;
+        if (close == null || pressed?.press !== true || Math.abs(dx) + Math.abs(dy) > TAP_SLOP) return;
+        if (!isOnImage(pressed.centre, placed, drawn)) close();
+      },
       onPanResponderTerminate: end,
     });
   }, [lock]);
 
   const step = (factor: number) =>
-    setZoomed(settle(zoomAround(camera, camera.scale * factor, { x: frame.width / 2, y: frame.height / 2 }), image, frame));
+    setZoomed(settle(zoomAround(camera, camera.scale * factor, { x: frame.width / 2, y: frame.height / 2 }), image, room));
 
   return (
-    <View onLayout={(event) => setAvailable(event.nativeEvent.layout.width)}>
-      {available == null ? null : (
+    <View
+      style={onClose == null ? undefined : { flex: 1 }}
+      onLayout={({ nativeEvent: { layout } }) => {
+        const { width } = layout;
+        const height = onClose == null ? null : layout.height;
+        setMeasured((previous) => (previous?.width === width && previous.height === height ? previous : { width, height }));
+      }}
+    >
+      {measured == null ? null : (
         <>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <View
+            style={[
+              { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+              onClose == null
+                ? { marginBottom: 6 }
+                : {
+                    position: "absolute",
+                    top: 8,
+                    left: 8,
+                    right: 8,
+                    zIndex: 1,
+                    paddingLeft: 10,
+                    gap: 8,
+                    borderRadius: 8,
+                    backgroundColor: theme.colors.surface0,
+                  },
+            ]}
+          >
             {leading ?? <View />}
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <IconButton
@@ -147,6 +191,7 @@ export function ZoomableImage({
                 disabled={zoomed == null}
                 onPress={() => setZoomed(null)}
               />
+              {onClose == null ? null : <IconButton theme={theme} icon="X" label="Close" onPress={onClose} />}
             </View>
           </View>
           <View
@@ -182,16 +227,28 @@ function zoomAround(camera: Camera, scale: number, focus: Point): Camera {
   return { scale, x: focus.x - (focus.x - camera.x) * ratio, y: focus.y - (focus.y - camera.y) * ratio };
 }
 
-function frameFor(image: Size, width: number, fit: number, scale: number): Frame {
-  const fitted = image.height * fit;
-  return { width, height: Math.max(fitted, Math.min(image.height * scale, MAX_FRAME_HEIGHT)), fit };
+function fitFor(image: Size, room: Room): number {
+  return Math.min(1, room.width / image.width, room.height == null ? 1 : room.height / image.height);
+}
+
+function frameFor(image: Size, room: Room, scale: number): Frame {
+  const fit = fitFor(image, room);
+  const height = room.height ?? Math.max(image.height * fit, Math.min(image.height * scale, MAX_FRAME_HEIGHT));
+  return { width: room.width, height, fit };
 }
 
 /** Null once zoomed back out to the fit. */
-function settle(camera: Camera, image: Size, frame: Frame): Camera | null {
-  const scale = Math.min(Math.max(camera.scale, frame.fit), Math.max(MAX_SCALE, frame.fit));
-  if (scale <= frame.fit * FIT_SLACK) return null;
-  return place({ ...camera, scale }, image, frameFor(image, frame.width, frame.fit, scale));
+function settle(camera: Camera, image: Size, room: Room): Camera | null {
+  const fit = fitFor(image, room);
+  const scale = Math.min(Math.max(camera.scale, fit), Math.max(MAX_SCALE, fit));
+  if (scale <= fit * FIT_SLACK) return null;
+  return place({ ...camera, scale }, image, frameFor(image, room, scale));
+}
+
+function isOnImage(point: Point, camera: Camera, image: Size): boolean {
+  const x = point.x - camera.x;
+  const y = point.y - camera.y;
+  return x >= 0 && y >= 0 && x <= image.width * camera.scale && y <= image.height * camera.scale;
 }
 
 function place(camera: Camera, image: Size, frame: Size): Camera {

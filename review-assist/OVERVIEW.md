@@ -56,9 +56,10 @@ repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no l
 behind them. On phones and tablets, and while Monaco loads or when it cannot, the panel shows the diff with
 Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
 row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap.
-Changed images show before and after, as GitHub does; a text file whose diff `.gitattributes` turns
-off (`-diff`) says so instead of passing for binary. Git LFS files show only their pointer's size
-change until **Fetch and compare** downloads both sides.
+Changed images show before and after, as GitHub does, and pressing either opens it full size to zoom
+and pan; a text file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for
+binary. Git LFS files show only their pointer's size change until **Fetch and compare** downloads
+both sides.
 
 Mermaid flowcharts and class diagrams (`.mmd`, `.mermaid`) open as a drawing of the change, with
 **Visual** and **Text** in the file's header to switch to the text diff. Removed nodes, links and
