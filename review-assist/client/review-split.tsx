@@ -8,6 +8,9 @@ type ListProps = Omit<ComponentProps<typeof DiffList>, "theme" | "view">;
 
 export function ReviewSplit({
   theme,
+  narrow,
+  paneShown,
+  onCloseDrawer,
   view,
   onResizePane,
   paneHeading,
@@ -16,10 +19,14 @@ export function ReviewSplit({
   ...list
 }: ListProps & {
   theme: PluginTheme;
+  /** Too narrow to hold the pane beside the diff: it opens over the diff as a drawer. */
+  narrow: boolean;
+  paneShown: boolean;
+  onCloseDrawer(): void;
   view: ViewOptions;
   onResizePane(width: number): void;
   paneHeading: string;
-  pane: ReactNode | null;
+  pane: ReactNode;
   /** Remounts the diff alone, keeping the pane's filter and width. */
   listKey?: string;
 }) {
@@ -28,13 +35,14 @@ export function ReviewSplit({
       theme={theme}
       paneWidth={view.paneWidth}
       onResizePane={onResizePane}
+      onDismiss={narrow ? onCloseDrawer : undefined}
       pane={
-        pane == null || !view.showPane ? null : (
+        paneShown ? (
           <>
             <PaneHeading theme={theme}>{paneHeading}</PaneHeading>
             {pane}
           </>
-        )
+        ) : null
       }
     >
       <DiffList key={listKey} theme={theme} view={view} {...list} />

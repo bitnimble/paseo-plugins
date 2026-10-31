@@ -17,6 +17,8 @@ import { type ScrollView as NativeScrollView, type StyleProp, View, type ViewSty
 
 export interface WindowedRow {
   readonly key: string;
+  /** What `ScrollList`'s `onTopBlock` reports while this row is at the top of the view. */
+  readonly blockIndex?: number;
   /** Kept mounted while scrolled away, for state such as a comment being typed. */
   readonly pinned: boolean;
   /** Its height until it is first laid out. */
@@ -33,6 +35,10 @@ export interface Viewport {
 
 export interface ScrollListHandle {
   offset(): number;
+  /** The last position a scroll event reported, never the optimistic target `offset()` may hold mid-jump. */
+  settledOffset(): number;
+  /** Bumped on every scroll event, so a caller can tell a requested jump has actually landed. */
+  scrollSeq(): number;
   topOf(key: string): number | null;
   scrollTo(offset: number, animated: boolean): void;
 }
@@ -58,15 +64,19 @@ export function ScrollList({
   style,
   scrollEnabled,
   bottomInset,
+  onTopBlock,
 }: {
   rows: readonly WindowedRow[];
   handle: RefObject<ScrollListHandle | null>;
   style: StyleProp<ViewStyle>;
   scrollEnabled: boolean;
   bottomInset: number;
+  onTopBlock?(index: number): void;
 }) {
   const scroll = useRef<NativeScrollView>(null);
   const offset = useRef(0);
+  const settled = useRef(0);
+  const seq = useRef(0);
   const listeners = useRef(new Set<() => void>()).current;
   const screen = useWindowDimensions();
   const [height, setHeight] = useState<number | null>(null);
@@ -102,11 +112,16 @@ export function ScrollList({
     handle,
     () => ({
       offset: () => offset.current,
+      settledOffset: () => settled.current,
+      scrollSeq: () => seq.current,
       topOf: layout.topOf,
       scrollTo: (y, animated) => (animated ? scroll.current?.scrollTo({ y, animated }) : jumpTo(y)),
     }),
     [layout, jumpTo],
   );
+  const lastRowHeight = rows.length === 0 ? 0 : layout.tops[rows.length] - layout.tops[rows.length - 1];
+  // Else a last row shorter than the view never reaches the top, so it is never reported or jumped to exactly.
+  const pastEnd = onTopBlock == null ? 0 : Math.max(0, viewport.height - lastRowHeight);
   return (
     <ScrollView
       ref={scroll}
@@ -117,10 +132,14 @@ export function ScrollList({
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       onScroll={(event) => {
         offset.current = event.nativeEvent.contentOffset.y;
+        settled.current = offset.current;
+        seq.current += 1;
         for (const listener of listeners) listener();
+        const topBlock = rows[rowAt(layout.tops, offset.current)]?.blockIndex;
+        if (topBlock != null) onTopBlock?.(topBlock);
       }}
       scrollEventThrottle={16}
-      contentContainerStyle={{ paddingBottom: bottomInset }}
+      contentContainerStyle={{ paddingBottom: bottomInset + pastEnd }}
     >
       <ViewportContext.Provider value={viewport}>
         <Rows

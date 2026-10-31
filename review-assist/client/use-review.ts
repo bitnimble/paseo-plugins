@@ -58,12 +58,14 @@ export interface Review {
   /** Why the guide could not be read, while there is none to show. */
   readonly guideError: string | null;
   readonly state: ReviewState;
+  /** False until the saved review state has loaded, so a scroll anchor is not restored before it is known. */
+  readonly stateLoaded: boolean;
   /** Null until the daemon answers. */
   readonly trust: Trust | null;
   readonly refreshing: boolean;
   refresh(): void;
   generate(): void;
-  setViewed(mark: ViewedMark, viewed: boolean): void;
+  setViewed(marks: readonly ViewedMark[], viewed: boolean): void;
   saveComment(comment: DraftComment): void;
   deleteComment(id: string): void;
   setTrust(trusted: boolean): void;
@@ -200,6 +202,7 @@ export function useReview(input: {
     guide,
     guideError: guideData == null && guideQuery.error != null ? messageOf(guideQuery.error) : null,
     state: stateQuery.data ?? EMPTY_REVIEW_STATE,
+    stateLoaded: stateQuery.isSuccess,
     trust: trustQuery.data?.trust ?? null,
     refreshing: diffQuery.isFetching,
     refresh: () => {
@@ -207,7 +210,7 @@ export function useReview(input: {
       void guideQuery.refetch();
     },
     generate: () => generation.mutate(),
-    setViewed: (mark, viewed) => stateWrite.mutate({ kind: "viewed", mark, viewed }),
+    setViewed: (marks, viewed) => stateWrite.mutate({ kind: "viewed", marks, viewed }),
     saveComment: (comment) => stateWrite.mutate({ kind: "comments", remove: [], save: [comment] }),
     deleteComment: (id) => stateWrite.mutate({ kind: "comments", remove: [id], save: [] }),
     setTrust: (trusted) => trustWrite.mutate(trusted),

@@ -14,6 +14,7 @@ import { Dropdown, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./
 import { ModeMenu } from "./mode-menu";
 import { MONOSPACE, compactCount } from "./palette";
 import { fitsPane } from "./panes";
+import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
 import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
 import { useCodeIntelligence } from "./use-code";
@@ -26,6 +27,8 @@ const placeSchema = z.object({
   mode: diffModeSchema,
   tab: z.enum(["guided", "full"]),
   section: z.number().int().nonnegative(),
+  scrollGuided: scrollAnchorSchema.optional(),
+  scrollFull: scrollAnchorSchema.optional(),
 });
 type Place = z.infer<typeof placeSchema>;
 type Tab = Place["tab"];
@@ -58,10 +61,17 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   }));
   const [place, setPlace] = useTabState(panelTab, placeSchema, START);
   const { mode, tab, section } = place;
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  const setScrollGuided = (scrollGuided: ScrollAnchor) => setPlace({ ...placeRef.current, scrollGuided });
+  const setScrollFull = (scrollFull: ScrollAnchor) => setPlace({ ...placeRef.current, scrollFull });
   const [menu, setMenu] = useState<Menu | null>(null);
+  const toolbar = useRef<View>(null);
   const [fold, setFold] = useState<FoldCommand | null>(null);
   const [fits, setFits] = useState(true);
   const narrow = layout.compact || !fits;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  if (!narrow && drawerOpen) setDrawerOpen(false);
   const { view, setView } = useViewOptions(narrow);
   const review = useReview({
     workspaceId,
@@ -71,6 +81,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
     revision: `${workspace?.additions}:${workspace?.deletions}`,
   });
   const { live } = review;
+  if (drawerOpen && live.status !== "ready") setDrawerOpen(false);
   const [trustPrompt, setTrustPrompt] = useState(false);
   const languageFeatures = isMonacoSupported();
   const trusted = review.trust === "trusted";
@@ -100,8 +111,11 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const openMenu = (name: Menu) => (open: boolean) => setMenu(open ? name : null);
   const comments = commentStore(review);
   const resizePane = (paneWidth: number) => setView({ paneWidth });
+  const paneShown = narrow ? drawerOpen : view.showPane;
+  const closeDrawer = () => setDrawerOpen(false);
   const pickMode = (next: DiffMode) => {
     if (modeKey(next) !== modeKey(mode)) setPlace({ ...place, mode: next, section: 0 });
+    setDrawerOpen(false);
     setMenu(null);
   };
   const foldAll = (collapsed: boolean) => {
@@ -116,6 +130,8 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
     >
       {menu == null ? null : <MenuBackdrop onPress={() => setMenu(null)} />}
       <View
+        ref={toolbar}
+        collapsable={false}
         style={{
           zIndex: 10,
           flexDirection: "row",
@@ -130,21 +146,28 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           backgroundColor: theme.colors.surface0,
         }}
       >
-        {narrow ? null : (
-          <IconButton
-            theme={theme}
-            icon={view.showPane ? "PanelLeftClose" : "PanelLeftOpen"}
-            label={view.showPane ? "Hide the side pane" : "Show the side pane"}
-            tooltipSide="start"
-            onPress={() => setView({ showPane: !view.showPane })}
-          />
-        )}
-        <Tabs<Tab> theme={theme} value={tab} options={TABS} onChange={(next) => setPlace({ ...place, tab: next })} />
+        <IconButton
+          theme={theme}
+          icon={paneShown ? "PanelLeftClose" : "PanelLeftOpen"}
+          label={paneShown ? "Hide the side pane" : "Show the side pane"}
+          tooltipSide="start"
+          onPress={() => (narrow ? setDrawerOpen(!drawerOpen) : setView({ showPane: !view.showPane }))}
+        />
+        <Tabs<Tab>
+          theme={theme}
+          value={tab}
+          options={TABS}
+          onChange={(next) => {
+            setPlace({ ...place, tab: next });
+            setDrawerOpen(false);
+          }}
+        />
         <ModeMenu
           theme={theme}
           directory={workspace.directory}
           mode={mode}
           base={live.status === "ready" ? live.base : null}
+          toolbar={toolbar}
           open={menu === "mode"}
           onOpenChange={openMenu("mode")}
           onPick={pickMode}
@@ -164,6 +187,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           theme={theme}
           label="View"
           icon="SlidersHorizontal"
+          toolbar={toolbar}
           open={menu === "view"}
           onOpenChange={openMenu("view")}
         >
@@ -256,6 +280,8 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         <GuidedView
           theme={theme}
           narrow={narrow}
+          paneShown={paneShown}
+          onCloseDrawer={closeDrawer}
           view={view}
           onResizePane={resizePane}
           fold={fold}
@@ -265,6 +291,9 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           generate={review.generate}
           section={section}
           onSection={(next) => setPlace({ ...place, section: next })}
+          scroll={place.scrollGuided}
+          onScroll={setScrollGuided}
+          stateLoaded={review.stateLoaded}
           viewedMarks={review.state.viewed}
           setViewed={review.setViewed}
           comments={comments}
@@ -274,11 +303,16 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         <FullView
           theme={theme}
           narrow={narrow}
+          paneShown={paneShown}
+          onCloseDrawer={closeDrawer}
           view={view}
           onResizePane={resizePane}
           fold={fold}
           diff={live.diff}
           source={live.source}
+          scroll={place.scrollFull}
+          onScroll={setScrollFull}
+          stateLoaded={review.stateLoaded}
           comments={comments}
         />
       ) : (

@@ -52,7 +52,7 @@ interface FileBlockViewProps {
   readonly draft: CommentDraft | null;
   readonly actions: CommentActions;
   readonly onCollapse: (foldKey: string, collapsed: boolean) => void;
-  readonly onViewed: (block: FileBlock, foldKey: string, viewed: boolean) => void;
+  readonly onViewed: (block: FileBlock, viewed: boolean) => void;
   readonly view: ViewOptions;
   readonly styles: DiffStyles;
   readonly theme: PluginTheme;
@@ -171,7 +171,7 @@ export const FileBlockView = memo(function FileBlockView({
               accessibilityLabel={`Viewed ${file.path}`}
               aria-checked={viewed}
               hitSlop={6}
-              onPress={() => onViewed(block, foldKey, !viewed)}
+              onPress={() => onViewed(block, !viewed)}
               style={({ pressed }) => [styles.viewedToggle, pressed && styles.fileHeaderPressed]}
             >
               <Icon

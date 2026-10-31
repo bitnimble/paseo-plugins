@@ -100,7 +100,7 @@ test("viewed marks and comments persist through concurrent writes and a new guid
   const states = new ReviewStates(cache);
   const slot = target(repo);
   const mark = (path: string, fingerprint: string, viewed = true) =>
-    states.apply(slot, { kind: "viewed", mark: { path, fingerprint }, viewed });
+    states.apply(slot, { kind: "viewed", marks: [{ path, fingerprint }], viewed });
   const save = (comment: DraftComment) => states.apply(slot, { kind: "comments", remove: [], save: [comment] });
   await Promise.all([mark("app.ts", "1"), mark("app.ts", "2"), mark("notes.md", "1")]);
   await mark("app.ts", "1", false);

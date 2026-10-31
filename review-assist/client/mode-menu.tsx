@@ -2,8 +2,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { TextInput } from "@getpaseo/plugin/client/ui";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { Text } from "react-native";
+import { type RefObject, useState } from "react";
+import { Text, type View } from "react-native";
 import {
   DEFAULT_BRANCH_MODE,
   type DiffBase,
@@ -21,6 +21,7 @@ export function ModeMenu({
   directory,
   mode,
   base,
+  toolbar,
   open,
   onOpenChange,
   onPick,
@@ -30,6 +31,7 @@ export function ModeMenu({
   mode: DiffMode;
   /** The live diff's base, once it has loaded for `mode`. */
   base: DiffBase | null;
+  toolbar: RefObject<View | null>;
   open: boolean;
   onOpenChange(open: boolean): void;
   onPick(mode: DiffMode): void;
@@ -45,7 +47,7 @@ export function ModeMenu({
           ? defaultLabel
           : `vs ${mode.branch}`;
   return (
-    <Dropdown theme={theme} label={label} open={open} onOpenChange={onOpenChange}>
+    <Dropdown theme={theme} label={label} toolbar={toolbar} open={open} onOpenChange={onOpenChange}>
       <MenuItem
         theme={theme}
         label={defaultLabel}

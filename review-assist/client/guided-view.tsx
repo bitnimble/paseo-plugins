@@ -1,23 +1,27 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Loading } from "@getpaseo/plugin/client/ui";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { type FileBlock, blockCounts, blockFingerprint, guideBlocks } from "../shared/guide";
 import type { GuideRecord, ViewedMark } from "../shared/protocol";
+import { viewedMarkKey } from "../shared/review-state";
 import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
 import { Button, Notice } from "./controls";
-import { type CommentStore, DiffList, type FileViewing, type FoldCommand, type ScrollTarget } from "./diff-list";
+import type { CommentStore, FileViewing, FoldCommand, ScrollTarget } from "./diff-list";
 import { FileList, Filtered } from "./panes";
 import { ReviewSplit } from "./review-split";
+import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback } from "./scroll-anchor";
 import type { GuideState, LiveDiff } from "./use-review";
 
 interface GuidedViewProps {
   readonly theme: PluginTheme;
   /** Too narrow for the side pane: every section in one scroll instead. */
   readonly narrow: boolean;
+  readonly paneShown: boolean;
+  readonly onCloseDrawer: () => void;
   readonly view: ViewOptions;
   readonly onResizePane: (width: number) => void;
   readonly fold: FoldCommand | null;
@@ -27,8 +31,11 @@ interface GuidedViewProps {
   readonly generate: () => void;
   readonly section: number;
   readonly onSection: (index: number) => void;
+  readonly scroll?: ScrollAnchor;
+  readonly onScroll: (anchor: ScrollAnchor) => void;
+  readonly stateLoaded: boolean;
   readonly viewedMarks: readonly ViewedMark[];
-  readonly setViewed: (mark: ViewedMark, viewed: boolean) => void;
+  readonly setViewed: (marks: readonly ViewedMark[], viewed: boolean) => void;
   readonly comments: CommentStore;
   readonly openAgent?: (agentId: string) => void;
 }
@@ -36,6 +43,8 @@ interface GuidedViewProps {
 export function GuidedView({
   theme,
   narrow,
+  paneShown,
+  onCloseDrawer,
   view,
   onResizePane,
   fold,
@@ -45,6 +54,9 @@ export function GuidedView({
   generate,
   section,
   onSection,
+  scroll,
+  onScroll,
+  stateLoaded,
   viewedMarks,
   setViewed,
   comments,
@@ -130,6 +142,8 @@ export function GuidedView({
       <Sections
         theme={theme}
         narrow={narrow}
+        paneShown={paneShown}
+        onCloseDrawer={onCloseDrawer}
         view={view}
         onResizePane={onResizePane}
         fold={fold}
@@ -137,6 +151,9 @@ export function GuidedView({
         diff={diff}
         selected={section}
         onSelect={onSection}
+        scroll={scroll}
+        onScroll={onScroll}
+        stateLoaded={stateLoaded}
         viewedMarks={viewedMarks}
         setViewed={setViewed}
         comments={comments}
@@ -148,6 +165,8 @@ export function GuidedView({
 function Sections({
   theme,
   narrow,
+  paneShown,
+  onCloseDrawer,
   view,
   onResizePane,
   fold,
@@ -155,12 +174,17 @@ function Sections({
   diff,
   selected,
   onSelect,
+  scroll,
+  onScroll,
+  stateLoaded,
   viewedMarks,
   setViewed,
   comments,
 }: {
   theme: PluginTheme;
   narrow: boolean;
+  paneShown: boolean;
+  onCloseDrawer(): void;
   view: ViewOptions;
   onResizePane(width: number): void;
   fold: FoldCommand | null;
@@ -168,11 +192,20 @@ function Sections({
   diff: ParsedDiff;
   selected: number;
   onSelect(index: number): void;
+  scroll?: ScrollAnchor;
+  onScroll(anchor: ScrollAnchor): void;
+  stateLoaded: boolean;
   viewedMarks: readonly ViewedMark[];
-  setViewed(mark: ViewedMark, viewed: boolean): void;
+  setViewed(marks: readonly ViewedMark[], viewed: boolean): void;
   comments: CommentStore;
 }) {
   const [target, setTarget] = useState<ScrollTarget | null>(null);
+  const [topSection, setTopSection] = useState(0);
+  const restored = useRef(false);
+  useEffect(() => {
+    restored.current = false;
+  }, [record.createdAt]);
+  const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
     return view.fileList === "tree"
@@ -180,44 +213,47 @@ function Sections({
       : sections;
   }, [record.sections, diff, view.fileList]);
   const allBlocks = useMemo(() => blocksBySection.flat(), [blocksBySection]);
-  const sectionStarts = useMemo(() => {
-    const starts = new Map<number, number>();
-    let offset = 0;
-    blocksBySection.forEach((blocks, sectionIndex) => {
-      if (blocks.length > 0) starts.set(offset, sectionIndex);
-      offset += blocks.length;
-    });
-    return starts;
-  }, [blocksBySection]);
+  const sectionOfBlock = useMemo(
+    () => blocksBySection.flatMap((blocks, sectionIndex) => blocks.map(() => sectionIndex)),
+    [blocksBySection],
+  );
+  const restoreIndex =
+    narrow && scroll != null
+      ? allBlocks.findIndex((block, i) => block.file.path === scroll.path && sectionOfBlock[i] === scroll.section)
+      : -1;
   const fingerprints = useMemo(
     () => new Map(allBlocks.map((block) => [block, blockFingerprint(block)])),
     [allBlocks],
   );
-  const marks = useMemo(
-    () => new Set(viewedMarks.map(({ path, fingerprint }) => `${path}\0${fingerprint}`)),
-    [viewedMarks],
-  );
+  const marks = useMemo(() => new Set(viewedMarks.map(viewedMarkKey)), [viewedMarks]);
   const source = useMemo(
     () => ({ root: record.root, tree: record.tree, base: record.base.sha }),
     [record.root, record.tree, record.base.sha],
   );
-  const isViewed = (block: FileBlock) => marks.has(`${block.file.path}\0${fingerprints.get(block)}`);
+  const markOf = (block: FileBlock): ViewedMark => ({
+    path: block.file.path,
+    fingerprint: fingerprints.get(block) ?? blockFingerprint(block),
+  });
+  const isViewed = (block: FileBlock) => marks.has(viewedMarkKey(markOf(block)));
+  const setBlocksViewed = (files: readonly FileBlock[], value: boolean) => setViewed(files.map(markOf), value);
   const sectionViewed = blocksBySection.map((files) => files.every(isViewed));
   const count = record.sections.length;
   const index = Math.min(selected, count - 1);
   const section = record.sections[index];
   const blocks = blocksBySection[index];
   const hasNext = index < count - 1;
-  const viewed: FileViewing = {
-    isViewed,
-    setViewed: (block, value) =>
-      setViewed({ path: block.file.path, fingerprint: fingerprints.get(block) ?? blockFingerprint(block) }, value),
-  };
+  const viewed: FileViewing = { isViewed, setViewed: (block, value) => setBlocksViewed([block], value) };
   const commentCounts = countByPath(comments.comments);
 
   const go = (next: number, blockIndex?: number) => {
     onSelect(next);
-    setTarget(blockIndex == null ? null : { blockIndex, nonce: Date.now() });
+    onCloseDrawer();
+    if (!narrow) {
+      setTarget(blockIndex == null ? null : { blockIndex, nonce: Date.now() });
+      return;
+    }
+    const first = sectionOfBlock.indexOf(next);
+    setTarget(first < 0 ? null : { blockIndex: first + (blockIndex ?? 0), nonce: Date.now() });
   };
 
   const inset = narrow ? 12 : 16;
@@ -230,30 +266,11 @@ function Sections({
       count={count}
       files={blocksBySection[sectionIndex].length}
       viewed={sectionViewed[sectionIndex]}
+      onToggleViewed={() => setBlocksViewed(blocksBySection[sectionIndex], !sectionViewed[sectionIndex])}
     />
   );
+  const highlighted = narrow ? topSection : index;
 
-  if (narrow) {
-    return (
-      <DiffList
-        key={record.createdAt}
-        blocks={allBlocks}
-        source={source}
-        theme={theme}
-        view={view}
-        target={null}
-        fold={fold}
-        viewed={viewed}
-        comments={comments}
-        heading={(blockIndex) => {
-          const sectionIndex = sectionStarts.get(blockIndex);
-          return sectionIndex == null ? null : headingFor(sectionIndex);
-        }}
-      />
-    );
-  }
-
-  const header = headingFor(index);
   const footer = (
     <View
       style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 8, padding: inset }}
@@ -272,6 +289,9 @@ function Sections({
   return (
     <ReviewSplit
       theme={theme}
+      narrow={narrow}
+      paneShown={paneShown}
+      onCloseDrawer={onCloseDrawer}
       view={view}
       onResizePane={onResizePane}
       paneHeading={`${sectionViewed.filter(Boolean).length} of ${count} sections viewed`}
@@ -280,7 +300,7 @@ function Sections({
           <View style={{ paddingBottom: 6 }}>
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ selected: sectionIndex === index }}
+              accessibilityState={{ selected: sectionIndex === highlighted }}
               onPress={() => go(sectionIndex)}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -289,16 +309,22 @@ function Sections({
                 paddingHorizontal: 12,
                 paddingVertical: 7,
                 backgroundColor:
-                  sectionIndex === index ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
+                  sectionIndex === highlighted ? theme.colors.surface2 : pressed ? theme.colors.surface1 : "transparent",
               })}
             >
-              <View style={{ paddingTop: 3 }}>
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel={`Viewed section ${item.title}`}
+                aria-checked={sectionViewed[sectionIndex]}
+                onPress={() => setBlocksViewed(blocksBySection[sectionIndex], !sectionViewed[sectionIndex])}
+                style={{ padding: 6, margin: -6, marginTop: -3 }}
+              >
                 <Icon
                   name={sectionViewed[sectionIndex] ? "CircleCheck" : "Circle"}
                   size={14}
                   color={sectionViewed[sectionIndex] ? theme.colors.statusSuccess : theme.colors.foregroundMuted}
                 />
-              </View>
+              </Pressable>
               <Text
                 style={{ flex: 1, fontSize: 14, lineHeight: 20, color: theme.colors.foreground, fontWeight: "600" }}
                 numberOfLines={2}
@@ -321,15 +347,28 @@ function Sections({
           </View>
         </Filtered>
       ))}
-      listKey={`${record.createdAt}:${section.id}`}
-      blocks={blocks}
       source={source}
       target={target}
       fold={fold}
       viewed={viewed}
       comments={comments}
-      header={header}
-      footer={footer}
+      {...(narrow
+        ? {
+            listKey: record.createdAt,
+            blocks: allBlocks,
+            restore: restoreIndex >= 0 ? restoreIndex : undefined,
+            restoreReady: stateLoaded && allBlocks.length > 0,
+            onRestored: () => {
+              restored.current = true;
+            },
+            heading: (blockIndex: number) =>
+              sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex - 1] ? null : headingFor(sectionOfBlock[blockIndex]),
+            onTopBlock: (blockIndex: number) => {
+              setTopSection(sectionOfBlock[blockIndex]);
+              if (restored.current) persist({ section: sectionOfBlock[blockIndex], path: allBlocks[blockIndex].file.path });
+            },
+          }
+        : { listKey: `${record.createdAt}:${section.id}`, blocks, header: headingFor(index), footer })}
     />
   );
 }
@@ -342,6 +381,7 @@ function SectionHeading({
   count,
   files,
   viewed,
+  onToggleViewed,
 }: {
   theme: PluginTheme;
   inset: number;
@@ -350,6 +390,7 @@ function SectionHeading({
   count: number;
   files: number;
   viewed: boolean;
+  onToggleViewed(): void;
 }) {
   return (
     <View style={{ gap: 6, padding: inset, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -362,6 +403,17 @@ function SectionHeading({
       </Text>
       {section.description === "" ? null : (
         <Text style={{ color: theme.colors.foreground, fontSize: 14, lineHeight: 20 }}>{section.description}</Text>
+      )}
+      {files === 0 ? null : (
+        <View style={{ flexDirection: "row" }}>
+          <Button
+            theme={theme}
+            size="xs"
+            icon="CheckCheck"
+            label={viewed ? "Mark section unviewed" : "Mark section viewed"}
+            onPress={onToggleViewed}
+          />
+        </View>
       )}
     </View>
   );

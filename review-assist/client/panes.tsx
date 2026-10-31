@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { PanResponder, Pressable, Text, View } from "react-native";
+import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
 import type { DiffFile } from "../shared/diff";
 import type { ViewOptions } from "../shared/settings";
 import { treeRows } from "../shared/tree";
@@ -41,12 +41,15 @@ export function Split({
   paneWidth,
   onResizePane,
   pane,
+  onDismiss,
   children,
 }: {
   theme: PluginTheme;
   paneWidth: number;
   onResizePane(width: number): void;
   pane: ReactNode | null;
+  /** Set, the pane floats over the diff and a press beside it calls this. */
+  onDismiss?(): void;
   children: ReactNode;
 }) {
   const [dragged, setDragged] = useState<number | null>(null);
@@ -56,14 +59,39 @@ export function Split({
   if (pane == null && dragged != null) setDragged(null);
   const clamp = (width: number) => clampPane(width, room);
   const width = dragged ?? clamp(paneWidth);
+  const floating = onDismiss != null;
   return (
     <View
       style={{ flex: 1, flexDirection: "row" }}
       onLayout={(event) => setRoom(Math.min(MAX_PANE_WIDTH, event.nativeEvent.layout.width - MIN_DIFF_WIDTH))}
     >
+      {pane == null || !floating ? null : (
+        <Pressable
+          accessibilityLabel="Close the side pane"
+          focusable={false}
+          onPress={onDismiss}
+          style={[StyleSheet.absoluteFill, { zIndex: 1, backgroundColor: "rgba(0,0,0,0.4)" }]}
+        />
+      )}
       {pane == null ? null : (
         // Above the diff: Monaco's margin otherwise covers half the resize handle.
-        <View style={{ width, zIndex: 1, borderRightWidth: 1, borderRightColor: theme.colors.border }}>
+        <View
+          style={[
+            { borderRightWidth: 1, borderRightColor: theme.colors.border },
+            floating
+              ? {
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  width: "85%",
+                  maxWidth: MAX_PANE_WIDTH,
+                  zIndex: 2,
+                  backgroundColor: theme.colors.surface0,
+                }
+              : { width, zIndex: 1 },
+          ]}
+        >
           <TextInput
             accessibilityLabel="Filter files"
             value={filter}
@@ -89,16 +117,18 @@ export function Split({
               {pane}
             </ScrollView>
           </FileFilter.Provider>
-          <ResizeHandle
-            theme={theme}
-            width={width}
-            clamp={clamp}
-            onDrag={setDragged}
-            onDrop={(next) => {
-              setDragged(null);
-              onResizePane(next);
-            }}
-          />
+          {floating ? null : (
+            <ResizeHandle
+              theme={theme}
+              width={width}
+              clamp={clamp}
+              onDrag={setDragged}
+              onDrop={(next) => {
+                setDragged(null);
+                onResizePane(next);
+              }}
+            />
+          )}
         </View>
       )}
       <View style={{ flex: 1 }}>{children}</View>

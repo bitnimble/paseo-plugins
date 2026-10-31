@@ -1,17 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { ToolbarTrigger } from "./controls";
+import { menuOffset } from "./menu-placement";
 
 const NARROW_WIDTH = 720;
-const EDGE_GAP = 8;
 
 /** Render `MenuBackdrop` once under the toolbar so a press anywhere else in the panel closes it. */
 export function Dropdown({
   theme,
   label,
   icon,
+  toolbar,
   open,
   onOpenChange,
   children,
@@ -19,25 +20,29 @@ export function Dropdown({
   theme: PluginTheme;
   label: string;
   icon?: string;
+  /** Keeps the menu inside this view, which must contain the dropdown. */
+  toolbar: RefObject<View | null>;
   open: boolean;
   onOpenChange(open: boolean): void;
   children: ReactNode;
 }) {
   const trigger = useRef<View>(null);
-  const screen = useWindowDimensions();
-  const [triggerLeft, setTriggerLeft] = useState<number | null>(null);
-  const [menuWidth, setMenuWidth] = useState<number | null>(null);
-  const placed = open && triggerLeft != null && menuWidth != null;
-  const align = placed && triggerLeft + menuWidth > screen.width - EDGE_GAP ? "right" : "left";
+  const [offset, setOffset] = useState<number | null>(null);
   const toggle = (): void => {
-    if (open) {
-      onOpenChange(false);
-      return;
-    }
-    setTriggerLeft(null);
-    setMenuWidth(null);
-    trigger.current?.measureInWindow((x) => setTriggerLeft(x));
-    onOpenChange(true);
+    if (!open) setOffset(null);
+    onOpenChange(!open);
+  };
+  const place = (menuWidth: number): void => {
+    const within = toolbar.current;
+    if (within == null) return;
+    within.measure((_x, _y, width) => {
+      // Toolbar-relative: window coordinates put the menu off screen on a phone, and web's onLayout x goes stale on a move.
+      trigger.current?.measureLayout(
+        within,
+        (left) => setOffset(menuOffset(left, width, menuWidth)),
+        () => setOffset(0),
+      );
+    });
   };
   return (
     <View ref={trigger} collapsable={false}>
@@ -45,12 +50,12 @@ export function Dropdown({
       {open ? (
         <View
           accessibilityRole="menu"
-          onLayout={(event) => setMenuWidth(event.nativeEvent.layout.width)}
+          onLayout={(event) => place(event.nativeEvent.layout.width)}
           style={{
             position: "absolute",
             top: "100%",
-            [align]: 0,
-            opacity: placed ? 1 : 0,
+            left: offset ?? 0,
+            opacity: offset == null ? 0 : 1,
             marginTop: 4,
             minWidth: 248,
             paddingVertical: 4,

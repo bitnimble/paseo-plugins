@@ -439,7 +439,7 @@ export const stateRpc = definePackedRpc({
 });
 
 const stateChangeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("viewed"), mark: viewedMarkSchema, viewed: z.boolean() }),
+  z.object({ kind: z.literal("viewed"), marks: z.array(viewedMarkSchema).readonly(), viewed: z.boolean() }),
   /** Drops the `remove` ids, then saves each of `save` over any comment with its id. */
   z.object({
     kind: z.literal("comments"),

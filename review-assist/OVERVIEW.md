@@ -1,9 +1,9 @@
 Review assist adds a **Review** panel to every git workspace that turns a large diff into a guided
 review. An agent splits the changes into sections by intent and layer of the stack, gives each a
 title and a short description, and orders them so each section builds on the ones before it. You
-step through the sections one at a time, tick **Viewed** on each file as you finish it, and jump to
-any file from the side pane; a section is done once all its files are viewed. A toggle switches back
-to the plain full diff at any point.
+step through the sections one at a time, tick **Viewed** on each file as you finish it or mark the
+whole section at once, and jump to any file from the side pane; a section is done once all its files
+are viewed. A toggle switches back to the plain full diff at any point.
 
 The agent never writes diff text. It only answers with line ranges into the real diff, so every line
 you review comes straight from git, and the sections always add up to exactly the full diff. Lines
@@ -38,9 +38,15 @@ daemon.
 **Filter files** at the top of the side pane keeps the files whose path holds every word typed, and
 the guided review's sections holding any of them.
 
-When the panel is too narrow to hold the side pane beside a readable diff, as in Paseo's sidebar, the
-pane goes away and the layout is always unified: the guided review shows every section in one
-scroll, each under its title and description, and the full diff shows just the files.
+**Mark section viewed**, under a section's description, ticks every file in the section, and
+**Mark section unviewed** clears them. The circle beside a section's title in the side pane does the
+same without leaving your place.
+
+When the panel is too narrow to hold the side pane beside a readable diff, as on a phone or in
+Paseo's sidebar, the layout is always unified and the guided review shows every section in one
+scroll, each under its title and description. The toolbar's button at the left opens the side pane
+over the diff, with the section you are reading highlighted; it closes when you jump to a section or
+file, or press beside it.
 
 In the web and desktop apps on a computer each file is a Monaco diff editor with collapsible
 unchanged lines. Once you trust the project, Ctrl/Cmd+click a symbol to peek at its definition,
