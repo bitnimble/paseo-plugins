@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { fullBlocks } from "../shared/guide";
@@ -47,9 +47,12 @@ export function FullView({
   }, [diff, view.fileList]);
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const restored = useRef(false);
-  useEffect(() => {
+  const restoreKey = useRef(narrow);
+  // Reset in render, not an effect: child onRestored runs before a parent effect and would be clobbered.
+  if (restoreKey.current !== narrow) {
+    restoreKey.current = narrow;
     restored.current = false;
-  }, [narrow]);
+  }
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const restoreIndex = narrow && scroll != null ? blocks.findIndex((block) => block.file.path === scroll.path) : -1;
   const counts = countByPath(comments.comments);

@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Loading } from "@getpaseo/plugin/client/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ParsedDiff } from "../shared/diff";
 import { type FileBlock, blockCounts, blockFingerprint, guideBlocks } from "../shared/guide";
@@ -202,9 +202,12 @@ function Sections({
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const [topSection, setTopSection] = useState(0);
   const restored = useRef(false);
-  useEffect(() => {
+  const restoreKey = useRef(record.createdAt);
+  // Reset in render, not an effect: child onRestored runs before a parent effect and would be clobbered.
+  if (restoreKey.current !== record.createdAt) {
+    restoreKey.current = record.createdAt;
     restored.current = false;
-  }, [record.createdAt]);
+  }
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
