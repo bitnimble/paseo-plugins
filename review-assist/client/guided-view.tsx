@@ -201,7 +201,8 @@ function Sections({
 }) {
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const [topSection, setTopSection] = useState(0);
-  const gate = useRestoreGate(record.createdAt);
+  // null while wide so the gate resets when a narrow DiffList remounts and restores afresh.
+  const gate = useRestoreGate(narrow ? record.createdAt : null);
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);

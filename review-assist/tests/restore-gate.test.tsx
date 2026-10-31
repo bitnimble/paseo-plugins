@@ -1,5 +1,5 @@
 import { expect, test } from "@jest/globals";
-import { useEffect } from "react";
+import { type ReactElement, useEffect } from "react";
 import { render } from "@testing-library/react-native";
 import { useRestoreGate } from "../client/scroll-anchor";
 
@@ -11,7 +11,7 @@ test("the gate keeps a child's restore mark and clears it only when the key chan
     }, []);
     return null;
   }
-  function Harness({ k }: { k: string }) {
+  function Harness({ k }: { k: string }): ReactElement {
     gate = useRestoreGate(k);
     return <Child onReady={gate.markRestored} />;
   }
