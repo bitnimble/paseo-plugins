@@ -119,9 +119,12 @@ export function ScrollList({
     }),
     [layout, jumpTo],
   );
-  const lastRowHeight = rows.length === 0 ? 0 : layout.tops[rows.length] - layout.tops[rows.length - 1];
-  // Else a last row shorter than the view never reaches the top, so it is never reported or jumped to exactly.
-  const pastEnd = onTopBlock == null ? 0 : Math.max(0, viewport.height - lastRowHeight);
+  let lastBlockRow = rows.length - 1;
+  while (lastBlockRow >= 0 && rows[lastBlockRow].blockIndex == null) lastBlockRow--;
+  // From the last reportable block to the end: else that block, when shorter than the view, never reaches the
+  // top, so it is never reported or jumped to exactly. Rows trailing it (a section footer) count as part of it.
+  const tail = lastBlockRow < 0 ? 0 : layout.tops[rows.length] - layout.tops[lastBlockRow];
+  const pastEnd = onTopBlock == null ? 0 : Math.max(0, viewport.height - tail);
   return (
     <ScrollView
       ref={scroll}

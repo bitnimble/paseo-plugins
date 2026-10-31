@@ -255,6 +255,11 @@ function Sections({
   };
 
   const inset = narrow ? 12 : 16;
+  const toggleSectionViewed = (sectionIndex: number) =>
+    setBlocksViewed(blocksBySection[sectionIndex], !sectionViewed[sectionIndex]);
+  const markSectionViewed = (sectionIndex: number) => {
+    if (!sectionViewed[sectionIndex]) setBlocksViewed(blocksBySection[sectionIndex], true);
+  };
   const headingFor = (sectionIndex: number) => (
     <SectionHeading
       theme={theme}
@@ -264,11 +269,35 @@ function Sections({
       count={count}
       files={blocksBySection[sectionIndex].length}
       viewed={sectionViewed[sectionIndex]}
-      onToggleViewed={() => setBlocksViewed(blocksBySection[sectionIndex], !sectionViewed[sectionIndex])}
+      onToggleViewed={() => toggleSectionViewed(sectionIndex)}
     />
+  );
+  const trailingFor = (sectionIndex: number) => (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "center",
+        padding: inset,
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.border,
+      }}
+    >
+      <Button
+        theme={theme}
+        variant="default"
+        icon="Check"
+        label="Mark section viewed"
+        disabled={sectionViewed[sectionIndex]}
+        onPress={() => markSectionViewed(sectionIndex)}
+      />
+    </View>
   );
   const highlighted = narrow ? topSection : index;
 
+  const markCurrentViewed = () => {
+    markSectionViewed(index);
+    if (hasNext) go(index + 1);
+  };
   const footer = (
     <View
       style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 8, padding: inset }}
@@ -280,6 +309,16 @@ function Sections({
         disabled={index === 0}
         onPress={() => go(index - 1)}
       />
+      {blocks.length === 0 ? null : (
+        <Button
+          theme={theme}
+          variant="default"
+          icon="Check"
+          label="Mark section viewed"
+          disabled={sectionViewed[index]}
+          onPress={markCurrentViewed}
+        />
+      )}
       <Button theme={theme} label="Next" icon="ChevronRight" disabled={!hasNext} onPress={() => go(index + 1)} />
     </View>
   );
@@ -314,7 +353,7 @@ function Sections({
                 accessibilityRole="checkbox"
                 accessibilityLabel={`Viewed section ${item.title}`}
                 aria-checked={sectionViewed[sectionIndex]}
-                onPress={() => setBlocksViewed(blocksBySection[sectionIndex], !sectionViewed[sectionIndex])}
+                onPress={() => toggleSectionViewed(sectionIndex)}
                 style={{ padding: 6, margin: -6, marginTop: -3 }}
               >
                 <Icon
@@ -359,6 +398,8 @@ function Sections({
             onRestored: gate.markRestored,
             heading: (blockIndex: number) =>
               sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex - 1] ? null : headingFor(sectionOfBlock[blockIndex]),
+            trailing: (blockIndex: number) =>
+              sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex + 1] ? null : trailingFor(sectionOfBlock[blockIndex]),
             onTopBlock: (blockIndex: number) => {
               setTopSection(sectionOfBlock[blockIndex]);
               if (gate.hasRestored()) persist({ section: sectionOfBlock[blockIndex], path: allBlocks[blockIndex].file.path });
@@ -405,7 +446,7 @@ function SectionHeading({
           <Button
             theme={theme}
             size="xs"
-            icon="CheckCheck"
+            icon="Check"
             label={viewed ? "Mark section unviewed" : "Mark section viewed"}
             onPress={onToggleViewed}
           />
