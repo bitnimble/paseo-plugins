@@ -62,6 +62,8 @@ interface DiffListProps {
   readonly footer?: ReactElement;
   /** Shown above the block at `index`, e.g. where a section starts. */
   readonly heading?: (index: number) => ReactNode;
+  /** Shown below the block at `index`, e.g. where a section ends. */
+  readonly trailing?: (index: number) => ReactNode;
   readonly onTopBlock?: (index: number) => void;
   /** Block to scroll to the top once restore runs; kept in view as rows below it render in. */
   readonly restore?: number;
@@ -312,7 +314,12 @@ export function DiffList(props: DiffListProps) {
         ),
       };
       const heading = props.heading?.(index);
-      return heading == null ? [blockRow] : [fixedRow(headingKey(index), heading, index), blockRow];
+      const trailing = props.trailing?.(index);
+      return [
+        ...(heading == null ? [] : [fixedRow(headingKey(index), heading, index)]),
+        blockRow,
+        ...(trailing == null ? [] : [fixedRow(trailingKey(index), trailing)]),
+      ];
     }),
     ...(footer == null ? [] : [fixedRow("footer", footer)]),
   ];
@@ -360,6 +367,10 @@ function blockTopOf(list: ScrollListHandle | null, blocks: readonly FileBlock[],
 
 function headingKey(index: number): string {
   return `heading:${index}`;
+}
+
+function trailingKey(index: number): string {
+  return `trailing:${index}`;
 }
 
 function draftPath(draft: CommentDraft): string {
