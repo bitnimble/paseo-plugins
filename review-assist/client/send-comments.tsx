@@ -112,6 +112,7 @@ export function SendComments({
           <TextInput
             accessibilityLabel="Message to send with the comments"
             multiline
+            autoCorrect
             value={message}
             onChangeText={setMessage}
             placeholder="Add a message (optional)"

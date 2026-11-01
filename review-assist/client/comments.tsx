@@ -261,6 +261,7 @@ function CommentComposer({
         accessibilityLabel={`Comment on ${rangeLabel(target).toLowerCase()}`}
         autoFocus={initialSuggestion == null}
         multiline
+        autoCorrect
         value={body}
         onChangeText={setBody}
         placeholder={suggestion == null ? "Leave a comment for the agent" : "Note for yourself (optional)"}
