@@ -109,26 +109,7 @@ export function SendComments({
               ))
             )}
           </View>
-          <TextInput
-            accessibilityLabel="Message to send with the comments"
-            multiline
-            autoCorrect
-            value={message}
-            onChangeText={setMessage}
-            placeholder="Add a message (optional)"
-            placeholderTextColor={theme.colors.foregroundMuted}
-            style={{
-              minHeight: 72,
-              padding: 10,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: theme.colors.border,
-              color: theme.colors.foreground,
-              fontSize: 14,
-              lineHeight: 20,
-              textAlignVertical: "top",
-            }}
-          />
+          <MessageInput theme={theme} initial={message} onChange={setMessage} />
           <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
             <Button theme={theme} variant="ghost" label="Cancel" onPress={() => setOpen(false)} />
             <Button
@@ -147,6 +128,45 @@ export function SendComments({
         </Modal.Content>
       </Modal>
     </>
+  );
+}
+
+export function MessageInput({
+  theme,
+  initial,
+  onChange,
+}: {
+  theme: PluginTheme;
+  initial: string;
+  onChange(message: string): void;
+}) {
+  // Local, not the parent's: the sheet's portal delivers parent props a commit late, so TextInput
+  // would rewrite the native text with the stale value on every key, which kills Gboard autocorrect.
+  const [value, setValue] = useState(initial);
+  return (
+    <TextInput
+      accessibilityLabel="Message to send with the comments"
+      multiline
+      autoCorrect
+      value={value}
+      onChangeText={(text) => {
+        setValue(text);
+        onChange(text);
+      }}
+      placeholder="Add a message (optional)"
+      placeholderTextColor={theme.colors.foregroundMuted}
+      style={{
+        minHeight: 72,
+        padding: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        color: theme.colors.foreground,
+        fontSize: 14,
+        lineHeight: 20,
+        textAlignVertical: "top",
+      }}
+    />
   );
 }
 
