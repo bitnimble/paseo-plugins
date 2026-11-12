@@ -18,7 +18,7 @@ import type { GuideState, LiveDiff } from "./use-review";
 
 interface GuidedViewProps {
   readonly theme: PluginTheme;
-  /** Too narrow for the side pane: every section in one scroll instead. */
+  /** Too narrow for the side pane: it opens over the diff as a drawer. */
   readonly narrow: boolean;
   readonly paneShown: boolean;
   readonly onCloseDrawer: () => void;
@@ -201,8 +201,9 @@ function Sections({
 }) {
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const [topSection, setTopSection] = useState(0);
-  // null while wide so the gate resets when a narrow DiffList remounts and restores afresh.
-  const gate = useRestoreGate(narrow ? record.createdAt : null);
+  const continuous = view.sections === "continuous";
+  // null while paged so the gate resets when a continuous DiffList remounts and restores afresh.
+  const gate = useRestoreGate(continuous ? record.createdAt : null);
   const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
@@ -215,10 +216,14 @@ function Sections({
     () => blocksBySection.flatMap((blocks, sectionIndex) => blocks.map(() => sectionIndex)),
     [blocksBySection],
   );
-  const restoreIndex =
-    narrow && scroll != null
-      ? allBlocks.findIndex((block, i) => block.file.path === scroll.path && sectionOfBlock[i] === scroll.section)
-      : -1;
+  const count = record.sections.length;
+  const index = Math.min(selected, count - 1);
+  const anchored =
+    scroll == null
+      ? -1
+      : allBlocks.findIndex((block, i) => block.file.path === scroll.path && sectionOfBlock[i] === scroll.section);
+  // Paging since the anchor was saved moves the selected section, not the anchor.
+  const restoreIndex = !continuous ? -1 : sectionOfBlock[anchored] === index ? anchored : sectionOfBlock.indexOf(index);
   const fingerprints = useMemo(
     () => new Map(allBlocks.map((block) => [block, blockFingerprint(block)])),
     [allBlocks],
@@ -235,8 +240,6 @@ function Sections({
   const isViewed = (block: FileBlock) => marks.has(viewedMarkKey(markOf(block)));
   const setBlocksViewed = (files: readonly FileBlock[], value: boolean) => setViewed(files.map(markOf), value);
   const sectionViewed = blocksBySection.map((files) => files.every(isViewed));
-  const count = record.sections.length;
-  const index = Math.min(selected, count - 1);
   const section = record.sections[index];
   const blocks = blocksBySection[index];
   const hasNext = index < count - 1;
@@ -246,7 +249,7 @@ function Sections({
   const go = (next: number, blockIndex?: number) => {
     onSelect(next);
     onCloseDrawer();
-    if (!narrow) {
+    if (!continuous) {
       setTarget(blockIndex == null ? null : { blockIndex, nonce: Date.now() });
       return;
     }
@@ -292,7 +295,7 @@ function Sections({
       />
     </View>
   );
-  const highlighted = narrow ? topSection : index;
+  const highlighted = continuous ? topSection : index;
 
   const markCurrentViewed = () => {
     markSectionViewed(index);
@@ -389,7 +392,7 @@ function Sections({
       fold={fold}
       viewed={viewed}
       comments={comments}
-      {...(narrow
+      {...(continuous
         ? {
             listKey: record.createdAt,
             blocks: allBlocks,

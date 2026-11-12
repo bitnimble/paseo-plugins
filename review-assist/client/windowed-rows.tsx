@@ -80,11 +80,26 @@ export function ScrollList({
   const listeners = useRef(new Set<() => void>()).current;
   const screen = useWindowDimensions();
   const [height, setHeight] = useState<number | null>(null);
+  const momentum = useRef(false);
+  const held = useRef(0);
+  const [shownHeld, setShownHeld] = useState(0);
+  const released = useRef(false);
   const jumpTo = useCallback((y: number): void => {
     // Rows measured before the scroll event arrives compare against where the list is going.
     offset.current = y;
+    // A jump ends any fling, without the momentum-end event to say so.
+    momentum.current = false;
+    held.current = 0;
+    setShownHeld(0);
     scroll.current?.scrollTo({ y, animated: false });
   }, []);
+  const release = (): void => {
+    momentum.current = false;
+    if (held.current === 0) return;
+    held.current = 0;
+    released.current = true;
+    setShownHeld(0);
+  };
   const viewport = useMemo(
     (): Viewport => ({
       height: height ?? screen.height,
@@ -102,10 +117,11 @@ export function ScrollList({
   const layout = useRowLayout(rows);
   const shift = useRef(0);
   useLayoutEffect(() => {
-    if (shift.current === 0) return;
+    if (shift.current === 0 && !released.current) return;
     // A row above the view grew or shrank: hold what shows in place.
     const to = offset.current + shift.current;
     shift.current = 0;
+    released.current = false;
     jumpTo(to);
   });
   useImperativeHandle(
@@ -115,7 +131,7 @@ export function ScrollList({
       settledOffset: () => settled.current,
       scrollSeq: () => seq.current,
       topOf: layout.topOf,
-      scrollTo: (y, animated) => (animated ? scroll.current?.scrollTo({ y, animated }) : jumpTo(y)),
+      scrollTo: (y, animated) => (animated ? scroll.current?.scrollTo({ y: y - held.current, animated }) : jumpTo(y)),
     }),
     [layout, jumpTo],
   );
@@ -133,8 +149,13 @@ export function ScrollList({
       // Else the first tap with the keyboard up only dismisses it, eating a long-press to extend a comment.
       keyboardShouldPersistTaps="handled"
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
+      onMomentumScrollBegin={() => {
+        momentum.current = true;
+      }}
+      onMomentumScrollEnd={release}
+      onScrollBeginDrag={release}
       onScroll={(event) => {
-        offset.current = event.nativeEvent.contentOffset.y;
+        offset.current = event.nativeEvent.contentOffset.y + held.current;
         settled.current = offset.current;
         seq.current += 1;
         for (const listener of listeners) listener();
@@ -145,19 +166,30 @@ export function ScrollList({
       contentContainerStyle={{ paddingBottom: bottomInset + pastEnd }}
     >
       <ViewportContext.Provider value={viewport}>
-        <Rows
-          rows={rows}
-          layout={layout}
-          top={0}
-          providesTops
-          sideways={false}
-          minWidth={0}
-          onResize={(index, before, after) => {
-            const top = layout.tops[index];
-            // Strictly above: a row first measured from height 0 at the view's top is in view, not above it.
-            if (top < offset.current && top + before <= offset.current) shift.current += after - before;
-          }}
-        />
+        <View style={shownHeld === 0 ? undefined : { transform: [{ translateY: -shownHeld }] }}>
+          <Rows
+            rows={rows}
+            layout={layout}
+            top={0}
+            providesTops
+            sideways={false}
+            minWidth={0}
+            onResize={(index, before, after) => {
+              const top = layout.tops[index];
+              // Strictly above: a row first measured from height 0 at the view's top is in view, not above it.
+              if (top >= offset.current || top + before > offset.current) return;
+              const grew = after - before;
+              if (!momentum.current) {
+                shift.current += grew;
+                return;
+              }
+              // scrollTo mid-fling stops the fling dead: offset the content instead, until it settles.
+              held.current += grew;
+              offset.current += grew;
+              setShownHeld(held.current);
+            }}
+          />
+        </View>
       </ViewportContext.Provider>
     </ScrollView>
   );

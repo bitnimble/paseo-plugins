@@ -31,7 +31,10 @@ the diff it was showing, Guided or Full diff, and its section.
 
 **View** switches between unified and split layouts, wraps long lines, hides lines that only
 changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.
-These change how lines are shown, never which section they belong to. Drag the side pane's edge to
+These change how lines are shown, never which section they belong to. In the guided review,
+**Sections** shows them **One at a time**, with **Previous** and **Next** beneath each, or **All in
+one scroll**, each under its title and description. Phones and narrow panels keep their own choice,
+all in one scroll by default; wider panels default to one at a time. Drag the side pane's edge to
 resize it, or hide and show it with the button at the toolbar's left; these choices are saved on the
 daemon.
 
@@ -43,8 +46,7 @@ the guided review's sections holding any of them.
 same without leaving your place.
 
 When the panel is too narrow to hold the side pane beside a readable diff, as on a phone or in
-Paseo's sidebar, the layout is always unified and the guided review shows every section in one
-scroll, each under its title and description. The toolbar's button at the left opens the side pane
+Paseo's sidebar, the layout is always unified. The toolbar's button at the left opens the side pane
 over the diff, with the section you are reading highlighted; it closes when you jump to a section or
 file, or press beside it.
 

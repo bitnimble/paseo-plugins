@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { z } from "zod";
 import { DEFAULT_BRANCH_MODE, type DiffMode, diffModeSchema, modeKey } from "../shared/protocol";
-import { type ReviewSettings, type ViewOptions, reviewSettings } from "../shared/settings";
+import { type ReviewSettings, type SectionsLayout, type ViewOptions, reviewSettings } from "../shared/settings";
 import { IconButton, Tabs } from "./controls";
 import type { FoldCommand } from "./diff-list";
 import { ErrorBoundary } from "./error-boundary";
@@ -23,7 +23,8 @@ import { commentStore, useReview } from "./use-review";
 import { isMonacoSupported } from "./web";
 
 type Menu = "mode" | "view" | "model";
-type SavedOptions = ViewOptions & Pick<ReviewSettings, "model">;
+type SavedOptions = Pick<ReviewSettings, (typeof SAVED_KEYS)[number]>;
+type SavedViewOptions = Omit<SavedOptions, "model" | "sectionsNarrow" | "sectionsWide">;
 
 const placeSchema = z.object({
   mode: diffModeSchema,
@@ -41,7 +42,17 @@ const TABS: readonly { value: Tab; label: string }[] = [
   { value: "full", label: "Full diff" },
 ];
 
-const SAVED_KEYS = ["model", "layout", "wrapLines", "hideWhitespace", "fileList", "paneWidth", "showPane"] as const;
+const SAVED_KEYS = [
+  "model",
+  "layout",
+  "wrapLines",
+  "hideWhitespace",
+  "fileList",
+  "paneWidth",
+  "showPane",
+  "sectionsNarrow",
+  "sectionsWide",
+] as const;
 const DEFAULT_SETTINGS = reviewSettings.schema.parse({});
 
 export function ReviewPanel(props: PluginWorkspacePanelProps) {
@@ -65,7 +76,8 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const { mode, tab, section } = place;
   const placeRef = useRef(place);
   placeRef.current = place;
-  const setScrollGuided = (scrollGuided: ScrollAnchor) => setPlace({ ...placeRef.current, scrollGuided });
+  const setScrollGuided = (scrollGuided: ScrollAnchor) =>
+    setPlace({ ...placeRef.current, scrollGuided, section: scrollGuided.section ?? placeRef.current.section });
   const setScrollFull = (scrollFull: ScrollAnchor) => setPlace({ ...placeRef.current, scrollFull });
   const [menu, setMenu] = useState<Menu | null>(null);
   const toolbar = useRef<View>(null);
@@ -74,7 +86,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const narrow = layout.compact || !fits;
   const [drawerOpen, setDrawerOpen] = useState(false);
   if (!narrow && drawerOpen) setDrawerOpen(false);
-  const { view, model, setView, setModel } = useSavedOptions(narrow);
+  const { view, model, setView, setSections, setModel } = useSavedOptions(narrow);
   const review = useReview({
     workspaceId,
     directory: workspace?.directory ?? null,
@@ -223,6 +235,24 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
               <MenuSeparator theme={theme} />
             </>
           )}
+          {tab === "guided" ? (
+            <>
+              <MenuHeading theme={theme}>Sections</MenuHeading>
+              <MenuItem
+                theme={theme}
+                label="One at a time"
+                checked={view.sections === "paged"}
+                onPress={() => setSections("paged")}
+              />
+              <MenuItem
+                theme={theme}
+                label="All in one scroll"
+                checked={view.sections === "continuous"}
+                onPress={() => setSections("continuous")}
+              />
+              <MenuSeparator theme={theme} />
+            </>
+          ) : null}
           <MenuItem
             theme={theme}
             label="Wrap lines"
@@ -336,18 +366,23 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   );
 }
 
-/** Persisted in the host settings; narrow layouts always show the unified layout. */
+/** Persisted in the host settings; narrow layouts always show the unified layout, and keep their own sections layout. */
 function useSavedOptions(narrow: boolean): {
   view: ViewOptions;
   model: string;
-  setView(change: Partial<ViewOptions>): void;
+  setView(change: Partial<SavedViewOptions>): void;
+  setSections(sections: SectionsLayout): void;
   setModel(model: string): void;
 } {
   const settings = useSettings(reviewSettings);
   const [pending, setPending] = useState<Partial<SavedOptions>>({});
   const savedAgainst = useRef<string | null>(null);
   const stored = settings.status === "ready" ? settings.values : DEFAULT_SETTINGS;
-  const { model, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane } = { ...stored, ...pending };
+  const { model, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane, sectionsNarrow, sectionsWide } = {
+    ...stored,
+    ...pending,
+  };
+  const sections = narrow ? sectionsNarrow : sectionsWide;
   // Every file row is memoised on it, so a new object per render re-renders them all.
   const view = useMemo(
     (): ViewOptions => ({
@@ -357,8 +392,9 @@ function useSavedOptions(narrow: boolean): {
       fileList,
       paneWidth,
       showPane,
+      sections,
     }),
-    [narrow, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane],
+    [narrow, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane, sections],
   );
 
   useEffect(() => {
@@ -378,6 +414,8 @@ function useSavedOptions(narrow: boolean): {
     view,
     model,
     setView: (change) => setPending((current) => ({ ...current, ...change })),
+    setSections: (next) =>
+      setPending((current) => ({ ...current, ...(narrow ? { sectionsNarrow: next } : { sectionsWide: next }) })),
     setModel: (next) => setPending((current) => ({ ...current, model: next })),
   };
 }

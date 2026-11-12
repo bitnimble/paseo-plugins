@@ -16,11 +16,15 @@ export const reviewSettings = defineSettings({
     fileList: z.enum(["flat", "tree"]).default("flat"),
     paneWidth: z.number().int().default(300),
     showPane: z.boolean().default(true),
+    sectionsNarrow: z.enum(["paged", "continuous"]).default("continuous"),
+    sectionsWide: z.enum(["paged", "continuous"]).default("paged"),
   }),
 });
 
 export type ReviewSettings = z.output<typeof reviewSettings.schema>;
+export type SectionsLayout = ReviewSettings["sectionsWide"];
+/** As shown: `layout` and `sections` resolved for the panel's width. */
 export type ViewOptions = Pick<
   ReviewSettings,
   "layout" | "wrapLines" | "hideWhitespace" | "fileList" | "paneWidth" | "showPane"
->;
+> & { readonly sections: SectionsLayout };
