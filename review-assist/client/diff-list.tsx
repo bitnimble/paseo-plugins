@@ -15,7 +15,7 @@ import { CODE_SURFACE } from "./palette";
 import { SettledWidth } from "./settled-width";
 import { usePalette } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
-import { isMonacoSupported } from "./web";
+import { installStickyStyle, isMonacoSupported } from "./web";
 import { ScrollList, type ScrollListHandle, type WindowedRow } from "./windowed-rows";
 
 const COLLAPSE_OVER_CHANGES = 800;
@@ -126,6 +126,7 @@ export function DiffList(props: DiffListProps) {
     [scrollToPending],
   );
   useEffect(scrollToPending, [bottomInset, scrollToPending]);
+  useEffect(installStickyStyle, []);
 
   const setCollapsed = useCallback((key: string, collapsed: boolean) => {
     setFolding(({ base, overrides }) => ({ base, overrides: new Map(overrides).set(key, collapsed) }));

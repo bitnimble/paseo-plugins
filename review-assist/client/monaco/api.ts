@@ -100,6 +100,9 @@ export interface CodeEditor {
   getScrollLeft(): number;
   setScrollLeft(scrollLeft: number): void;
   getSelection(): MonacoRange | null;
+  setPosition(position: MonacoPosition): void;
+  getDomNode(): object | null;
+  getTargetAtClientPoint(clientX: number, clientY: number): EditorMouseEvent["target"] | null;
   onDidContentSizeChange(listener: () => void): IDisposable;
   onDidScrollChange(listener: (event: { scrollTop: number }) => void): IDisposable;
   onMouseMove(listener: (event: EditorMouseEvent) => void): IDisposable;

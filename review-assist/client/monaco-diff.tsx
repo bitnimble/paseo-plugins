@@ -22,16 +22,15 @@ import type { CodeEditor, Decoration, DecorationsCollection, DiffEditor, IDispos
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
-import { CODE_SURFACE, MONOSPACE } from "./palette";
-import { asEditorContainer, asOverflowHost, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
-import { ContentTop, useViewport } from "./windowed-rows";
+import { CODE_SURFACE, MONOSPACE, STICKY } from "./palette";
+import { asEditorContainer, asOverflowHost, keepMovedCodeCompare, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
+import { ContentTop, PinnedHeight, useViewport } from "./windowed-rows";
 
 const LINE_HEIGHT = 18;
 const SCROLLBAR_SIZE = 10;
 const SPLIT_MIN_WIDTH = 560;
 const CARD_HEIGHT_ESTIMATE = 96;
 const CARDS_CLIP = { reviewcards: "" } as const;
-const STICKY_FRAME = { reviewsticky: "" } as const;
 // Above the diff editor's own zones on the same line, such as inline removed lines.
 const ZONE_ORDINAL = 10_000;
 const COMMENT_GLYPH = "review-comment-glyph";
@@ -75,6 +74,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
   const { block, text, view, theme, palette, overflowHost, comments, changeLimit, onShowMore, hidden, fallback } = props;
   const viewport = useViewport();
   const slotTop = useContext(ContentTop);
+  const pinned = useContext(PinnedHeight);
   const { file } = block;
   const sides = useStableSides(
     useMemo(
@@ -246,13 +246,14 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
 
   const ready = editors != null && settled === editors;
   const visible = ready && !nativeFirst;
-  const frameHeight = visible ? Math.min(height, viewport.height) : nativeFirst ? 0 : Math.min(estimateHeight(block), viewport.height);
+  const shown = Math.max(LINE_HEIGHT, viewport.height - pinned);
+  const frameHeight = visible ? Math.min(height, shown) : nativeFirst ? 0 : Math.min(estimateHeight(block), shown);
   useEffect(() => {
     const editor = editors?.modified ?? editors?.original;
     if (!visible || editors == null || editor == null || disposed.current.has(editors)) return;
     // Whole pixels, as Monaco stores them: a fraction never matches `followed`, so each scroll would yank the list.
     const inView = (contentHeight: number): number =>
-      Math.floor(Math.min(Math.max(viewport.offset() - slotTop, 0), Math.max(0, contentHeight - frameHeight)));
+      Math.floor(Math.min(Math.max(viewport.offset() + pinned - slotTop, 0), Math.max(0, contentHeight - frameHeight)));
     let followed = editor.getScrollTop();
     const follow = (): void => {
       const next = inView(height);
@@ -264,7 +265,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       if (scrollTop === followed) return;
       followed = scrollTop;
       // Revealing a line moves the list there; Monaco settling within new content bounds does not.
-      if (scrollTop !== inView(editor.getContentHeight())) viewport.scrollTo(slotTop + scrollTop);
+      if (scrollTop !== inView(editor.getContentHeight())) viewport.scrollTo(slotTop + scrollTop - pinned);
     });
     follow();
     const unsubscribe = viewport.subscribe(follow);
@@ -272,12 +273,17 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       unsubscribe();
       lead.dispose();
     };
-  }, [editors, visible, viewport, slotTop, height, frameHeight]);
+  }, [editors, visible, viewport, slotTop, pinned, height, frameHeight]);
 
   useEffect(() => {
     const editor = editors?.modified ?? editors?.original;
     if (editors == null || editor == null || container == null || disposed.current.has(editors)) return;
     return scrollSidewaysOnWheel(container, editor);
+  }, [editors, container]);
+
+  useEffect(() => {
+    if (editors?.diff == null || container == null || disposed.current.has(editors)) return;
+    return keepMovedCodeCompare(container, innerEditors(editors));
   }, [editors, container]);
 
   useEffect(() => {
@@ -387,7 +393,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
     <View>
       {nativeFirst ? fallback : null}
       <View style={{ height: visible ? height : frameHeight }}>
-        <View style={{ height: frameHeight }} dataSet={STICKY_FRAME}>
+        <View style={{ height: frameHeight, top: pinned }} dataSet={STICKY}>
           <View ref={(node) => setContainer(node)} style={{ height: frameHeight, opacity: visible ? 1 : 0 }} dataSet={CODE_SURFACE} />
           {visible ? (
             <View

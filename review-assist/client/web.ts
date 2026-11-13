@@ -5,6 +5,7 @@ import { MONOSPACE } from "./palette";
 
 // This plugin typechecks without the DOM library.
 interface ElementNode {
+  id: string;
   textContent: string;
   classList: { add(name: string): void };
 }
@@ -23,6 +24,7 @@ declare const document: {
   createElement(tagName: "script"): ScriptElement;
   createElement(tagName: "style" | "div"): ElementNode;
   head: { appendChild(element: ScriptElement | ElementNode): void };
+  getElementById(id: string): object | null;
   documentElement: { classList: { toggle(name: string, force: boolean): void } };
 };
 
@@ -59,6 +61,17 @@ interface WheelTarget {
   removeEventListener(type: "wheel", listener: (event: WheelLike) => void): void;
 }
 
+interface DomElement {
+  closest(selector: string): DomElement | null;
+  contains(node: DomElement): boolean;
+  getBoundingClientRect(): { readonly left: number; readonly right: number; readonly bottom: number };
+}
+
+interface PointerTarget {
+  addEventListener(type: "pointerdown", listener: (event: { readonly target: unknown }) => void, capture: boolean): void;
+  removeEventListener(type: "pointerdown", listener: (event: { readonly target: unknown }) => void, capture: boolean): void;
+}
+
 declare class Blob {
   constructor(parts: readonly string[], options: { type: string });
 }
@@ -66,6 +79,8 @@ declare const URL: { createObjectURL(blob: Blob): string; revokeObjectURL(url: s
 declare class Worker {
   constructor(url: string);
 }
+
+const STICKY_STYLE_ID = "review-assist-sticky";
 
 const EXTRA_CSS = `
 .review-comment-glyph { cursor: pointer; opacity: 0.8; }
@@ -83,10 +98,18 @@ const EXTRA_CSS = `
 .review-scope-last { border-bottom-width: 1px; }
 .review-resizing, .review-resizing * { user-select: none !important; cursor: col-resize !important; }
 [data-reviewcards] { overflow: clip !important; }
-[data-reviewsticky] { position: sticky !important; top: 0; }
 .monaco-editor .reference-zone-widget .ref-tree { font-family: var(--paseo-ui-font, inherit); font-size: 12px; }
 .monaco-editor .reference-zone-widget .ref-tree .reference { font-family: ${MONOSPACE}; }
 `;
+
+/** Backs the `STICKY` data attribute; idempotent. */
+export function installStickyStyle(): void {
+  if (Platform.OS !== "web" || document.getElementById(STICKY_STYLE_ID) != null) return;
+  const style = document.createElement("style");
+  style.id = STICKY_STYLE_ID;
+  style.textContent = "[data-reviewsticky] { position: sticky !important; top: 0; }";
+  document.head.appendChild(style);
+}
 
 /** Holds the resize cursor, and stops text selection, wherever the pointer wanders mid-drag. */
 export function markResizing(resizing: boolean): void {
@@ -148,6 +171,25 @@ export function scrollSidewaysOnWheel(container: object, editor: CodeEditor): ()
   };
   node.addEventListener("wheel", onWheel, { passive: false });
   return () => node.removeEventListener("wheel", onWheel);
+}
+
+/**
+ * Monaco's moved-code Compare focuses its editor, and an editor newly focused drops the compare unless its cursor
+ * is in the moved code; returns a stop.
+ */
+export function keepMovedCodeCompare(container: object, editors: readonly CodeEditor[]): () => void {
+  const node = container as unknown as PointerTarget;
+  const onPointerDown = (event: { readonly target: unknown }): void => {
+    const bar = (event.target as Partial<DomElement> | null)?.closest?.(".diff-moved-code-block");
+    if (bar == null) return;
+    const editor = editors.find((candidate) => (candidate.getDomNode() as DomElement | null)?.contains(bar) === true);
+    const { left, right, bottom } = bar.getBoundingClientRect();
+    // The bar sits in a zone just above the moved code's first line.
+    const line = editor?.getTargetAtClientPoint((left + right) / 2, bottom + 2)?.position?.lineNumber;
+    if (editor != null && line != null) editor.setPosition({ lineNumber: line, column: 1 });
+  };
+  node.addEventListener("pointerdown", onPointerDown, true);
+  return () => node.removeEventListener("pointerdown", onPointerDown, true);
 }
 
 /** Monaco styles overflow widgets through an ancestor carrying its root class. */

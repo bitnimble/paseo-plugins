@@ -98,7 +98,8 @@ block and long-press another. A removed block's comment is on the old file's lin
 
 Files over 800 changed lines start collapsed. The review scrolls as one document with one
 scrollbar; in Monaco a long file scrolls up until it fills the pane, holds there while its lines
-scroll past, then moves on. Each file stops after 400 changed lines, or at its last comment, with a
+scroll past, then moves on. A file's header, with its name and **Viewed**, stays at the top of the
+pane while its lines scroll past. Each file stops after 400 changed lines, or at its last comment, with a
 button beneath that shows 2,000 more at a time.
 
 Language servers can run a project's code, so as in VS Code they stay off until you trust the

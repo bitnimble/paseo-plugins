@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react-native";
+import type { View as HostView } from "react-native";
 import { CODE_LINE_HEIGHT, FILE_HEADER_HEIGHT } from "../client/diff-styles";
 import { FullView } from "../client/full-view";
 import { parseDiff } from "../shared/diff";
@@ -25,13 +26,16 @@ jest.mock("@getpaseo/plugin/client/ui", () => {
     ScrollView: forwardRef(function ScrollView(props: { onScroll?: (event: object) => void }, ref) {
       const latest = useRef(props);
       latest.current = props;
-      useImperativeHandle(ref, () => ({
-        scrollTo: ({ y }: { y: number }) => {
-          mockScrollTo(y);
-          latest.current.onScroll?.({ nativeEvent: { contentOffset: { y } } });
-        },
-      }));
-      return createElement(View, { ...props, testID: "scroll" });
+      const host = useRef<HostView>(null);
+      useImperativeHandle(ref, () =>
+        Object.assign(host.current ?? {}, {
+          scrollTo: ({ y }: { y: number }) => {
+            mockScrollTo(y);
+            latest.current.onScroll?.({ nativeEvent: { contentOffset: { y } } });
+          },
+        }),
+      );
+      return createElement(View, { ...props, ref: host, testID: "scroll" });
     }),
   };
 });

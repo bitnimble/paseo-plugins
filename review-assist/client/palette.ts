@@ -13,6 +13,9 @@ export const MONOSPACE = Platform.select({
 // UI inside one, such as a comment card, falls back to a different font.
 export const CODE_SURFACE = { pmono: "" } as const;
 
+/** `position: sticky` on the web, through the plugin's stylesheet; React Native has no sticky. */
+export const STICKY = { reviewsticky: "" } as const;
+
 export function changeIcon(theme: PluginTheme, status: DiffFileStatus): { name: string; color: string } {
   if (status === "added") return { name: "SquarePlus", color: theme.colors.statusSuccess };
   if (status === "deleted") return { name: "SquareMinus", color: theme.colors.statusDanger };

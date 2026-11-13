@@ -13,7 +13,19 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { type ScrollView as NativeScrollView, type StyleProp, View, type ViewStyle, useWindowDimensions } from "react-native";
+import {
+  Animated,
+  type NativeScrollEvent,
+  type ScrollView as NativeScrollView,
+  type NativeSyntheticEvent,
+  Platform,
+  type StyleProp,
+  View,
+  type ViewStyle,
+  useWindowDimensions,
+} from "react-native";
+
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 export interface WindowedRow {
   readonly key: string;
@@ -52,6 +64,35 @@ const ViewportContext = createContext<Viewport>({
 
 /** Where content rendered here starts within the list's scrolled content. */
 export const ContentTop = createContext(0);
+
+/** How much stays pinned over the view's top, on the web, while content rendered here scrolls under it. */
+export const PinnedHeight = createContext(0);
+
+/**
+ * The list's scroll position, followed on the native thread for transforms that track it without lagging a
+ * frame; content sits `held` higher than it, mid-fling.
+ */
+export const ScrollPosition = createContext<{ readonly y: Animated.Value; readonly held: number } | null>(null);
+
+type PinnedStyle = { transform: { translateY: Animated.AnimatedInterpolation<number> }[] };
+
+/**
+ * On native, holds content starting at `top` against the view's top, for up to `travel` of scrolling: the web's
+ * `STICKY` does it there.
+ */
+export function usePinnedAtTop(top: number, travel: number): PinnedStyle | null {
+  const position = useContext(ScrollPosition);
+  return useMemo(() => {
+    if (Platform.OS === "web" || position == null || travel <= 0) return null;
+    const start = top - position.held;
+    const translateY = position.y.interpolate({
+      inputRange: [start, start + travel],
+      outputRange: [0, travel],
+      extrapolate: "clamp",
+    });
+    return { transform: [{ translateY }] };
+  }, [position, top, travel]);
+}
 
 export function useViewport(): Viewport {
   return useContext(ViewportContext);
@@ -141,8 +182,27 @@ export function ScrollList({
   // top, so it is never reported or jumped to exactly. Rows trailing it (a section footer) count as part of it.
   const tail = lastBlockRow < 0 ? 0 : layout.tops[rows.length] - layout.tops[lastBlockRow];
   const pastEnd = onTopBlock == null ? 0 : Math.max(0, viewport.height - tail);
+  const handleScroll = useRef((_event: NativeSyntheticEvent<NativeScrollEvent>): void => undefined);
+  handleScroll.current = (event) => {
+    offset.current = event.nativeEvent.contentOffset.y + held.current;
+    settled.current = offset.current;
+    seq.current += 1;
+    for (const listener of listeners) listener();
+    const topBlock = rows[rowAt(layout.tops, offset.current)]?.blockIndex;
+    if (topBlock != null) onTopBlock?.(topBlock);
+  };
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const onScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: Platform.OS !== "web",
+        listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => handleScroll.current(event),
+      }),
+    [scrollY],
+  );
+  const position = useMemo(() => ({ y: scrollY, held: shownHeld }), [scrollY, shownHeld]);
   return (
-    <ScrollView
+    <AnimatedScrollView
       ref={scroll}
       style={style}
       scrollEnabled={scrollEnabled}
@@ -154,44 +214,44 @@ export function ScrollList({
       }}
       onMomentumScrollEnd={release}
       onScrollBeginDrag={release}
-      onScroll={(event) => {
-        offset.current = event.nativeEvent.contentOffset.y + held.current;
-        settled.current = offset.current;
-        seq.current += 1;
-        for (const listener of listeners) listener();
-        const topBlock = rows[rowAt(layout.tops, offset.current)]?.blockIndex;
-        if (topBlock != null) onTopBlock?.(topBlock);
-      }}
+      onScroll={onScroll}
       scrollEventThrottle={16}
       contentContainerStyle={{ paddingBottom: bottomInset + pastEnd }}
     >
-      <ViewportContext.Provider value={viewport}>
-        <View style={shownHeld === 0 ? undefined : { transform: [{ translateY: -shownHeld }] }}>
-          <Rows
-            rows={rows}
-            layout={layout}
-            top={0}
-            providesTops
-            sideways={false}
-            minWidth={0}
-            onResize={(index, before, after) => {
-              const top = layout.tops[index];
-              // Strictly above: a row first measured from height 0 at the view's top is in view, not above it.
-              if (top >= offset.current || top + before > offset.current) return;
-              const grew = after - before;
-              if (!momentum.current) {
-                shift.current += grew;
-                return;
-              }
-              // scrollTo mid-fling stops the fling dead: offset the content instead, until it settles.
-              held.current += grew;
-              offset.current += grew;
-              setShownHeld(held.current);
-            }}
-          />
-        </View>
-      </ViewportContext.Provider>
-    </ScrollView>
+      <ScrollPosition.Provider value={position}>
+        <ViewportContext.Provider value={viewport}>
+          <View style={shownHeld === 0 ? undefined : { transform: [{ translateY: -shownHeld }] }}>
+            <Rows
+              rows={rows}
+              layout={layout}
+              top={0}
+              providesTops
+              sideways={false}
+              minWidth={0}
+              onResize={(index, before, after) => {
+                const top = layout.tops[index];
+                // Strictly above: a row first measured from height 0 at the view's top is in view, not above it.
+                if (top >= offset.current) return;
+                if (top + before > offset.current) {
+                  // A row holding the view's top shrank above it, as a file collapsed from its pinned header.
+                  if (top + after <= offset.current) shift.current += top - offset.current;
+                  return;
+                }
+                const grew = after - before;
+                if (!momentum.current) {
+                  shift.current += grew;
+                  return;
+                }
+                // scrollTo mid-fling stops the fling dead: offset the content instead, until it settles.
+                held.current += grew;
+                offset.current += grew;
+                setShownHeld(held.current);
+              }}
+            />
+          </View>
+        </ViewportContext.Provider>
+      </ScrollPosition.Provider>
+    </AnimatedScrollView>
   );
 }
 

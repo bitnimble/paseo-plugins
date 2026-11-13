@@ -1,17 +1,18 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { createRef } from "react";
-import { Text } from "react-native";
+import { Text, type View as HostView } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { ScrollList, type ScrollListHandle, type WindowedRow } from "../client/windowed-rows";
 
 const mockScrollTo = jest.fn();
 jest.mock("@getpaseo/plugin/client/ui", () => {
-  const { createElement, forwardRef, useImperativeHandle } = jest.requireActual<typeof import("react")>("react");
+  const { createElement, forwardRef, useImperativeHandle, useRef } = jest.requireActual<typeof import("react")>("react");
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   return {
     ScrollView: forwardRef(function ScrollView(props: object, ref) {
-      useImperativeHandle(ref, () => ({ scrollTo: mockScrollTo }));
-      return createElement(View, { ...props, testID: "scroll" });
+      const host = useRef<HostView>(null);
+      useImperativeHandle(ref, () => Object.assign(host.current ?? {}, { scrollTo: mockScrollTo }));
+      return createElement(View, { ...props, ref: host, testID: "scroll" });
     }),
   };
 });
@@ -57,6 +58,12 @@ test("a row above the view growing mid-fling scrolls only once the fling ends", 
   fireEvent(scroll, "momentumScrollEnd");
   expect(mockScrollTo).toHaveBeenCalledTimes(1);
   expect(mockScrollTo).toHaveBeenCalledWith({ y: 460, animated: false });
+});
+
+test("a row holding the view's top shrinking above it, as a file collapsed from its pinned header, shows its top", () => {
+  renderScrolledPastFirstRow();
+  fireEvent(screen.getByTestId("b"), "layout", { nativeEvent: { layout: { width: 320, height: 30 } } });
+  expect(mockScrollTo).toHaveBeenLastCalledWith({ y: 100, animated: false });
 });
 
 test("a jump mid-fling lands where asked and ends the fling's hold", () => {

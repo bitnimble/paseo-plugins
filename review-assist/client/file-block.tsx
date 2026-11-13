@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, memo, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Animated, Pressable, Text, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
 import { type FileBlock, blockCounts } from "../shared/guide";
@@ -18,9 +18,10 @@ import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { NativeBody } from "./native-diff";
+import { STICKY } from "./palette";
 import { useFileText } from "./use-code";
 import type { VisualView } from "./visual-view";
-import { ContentTop } from "./windowed-rows";
+import { ContentTop, PinnedHeight, usePinnedAtTop } from "./windowed-rows";
 
 const VISUAL_TABS = [
   { value: "visual", label: "Visual" },
@@ -83,6 +84,8 @@ export const FileBlockView = memo(function FileBlockView({
   const { file } = block;
   const top = useContext(ContentTop);
   const [lead, setLead] = useState(FILE_HEADER_HEIGHT);
+  const [height, setHeight] = useState(0);
+  const pinned = usePinnedAtTop(top, collapsed ? 0 : height - lead);
   const moved = file.oldPath != null && file.oldPath !== file.path;
   const hasText = file.hunks.length > 0 && !file.binary && !file.lfs;
   const monaco = hasText && overflowHost != null && palette != null;
@@ -139,8 +142,12 @@ export const FileBlockView = memo(function FileBlockView({
   );
 
   return (
-    <View>
-      <View onLayout={(event) => setLead(event.nativeEvent.layout.height)}>
+    <View onLayout={(event) => setHeight(event.nativeEvent.layout.height)}>
+      <Animated.View
+        onLayout={(event) => setLead(event.nativeEvent.layout.height)}
+        style={[{ zIndex: 1, backgroundColor: theme.colors.surface0 }, pinned]}
+        dataSet={STICKY}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
@@ -190,10 +197,12 @@ export const FileBlockView = memo(function FileBlockView({
                 {note}
               </Text>
             ))}
-      </View>
+      </Animated.View>
       {collapsed ? null : (
         <View style={styles.body}>
-          <ContentTop.Provider value={top + lead}>{body()}</ContentTop.Provider>
+          <ContentTop.Provider value={top + lead}>
+            <PinnedHeight.Provider value={lead}>{body()}</PinnedHeight.Provider>
+          </ContentTop.Provider>
         </View>
       )}
     </View>
