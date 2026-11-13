@@ -2,6 +2,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { submitReview, workspaceAgents } from "./server/agents";
 import { listBranches, previewBlob, readDiff, repoRoot } from "./server/git";
 import { highlightSides, syntaxPalette } from "./server/highlight";
+import { peek } from "./server/lsp/peek";
 import { LanguageServers } from "./server/lsp/pool";
 import { markdownDiff } from "./server/markdown";
 import { MermaidRenderer } from "./server/mermaid/renderer";
@@ -30,6 +31,7 @@ import {
   mermaidRpc,
   monacoRpc,
   paletteRpc,
+  peekRpc,
   setTrustRpc,
   stateChangeRpc,
   stateRpc,
@@ -129,6 +131,12 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     lspRpc,
     async ({ projectId, ...input }) =>
       (await languageRefusal(projectId, input.root)) ?? languageServers.request(input),
+  );
+  handlePacked(
+    server,
+    peekRpc,
+    async ({ projectId, ...input }) =>
+      (await languageRefusal(projectId, input.root)) ?? peek(languageServers, trees, input).catch(failed),
   );
   server.handle(leaseRpc, async ({ projectId, root, leaseId, action }) => {
     if (action === "release") {

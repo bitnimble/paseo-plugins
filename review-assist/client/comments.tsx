@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useContext, useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { type NativeSyntheticEvent, Text, type TextInputKeyPressEventData, View } from "react-native";
 import { type CommentTarget, commentLine, commentTarget, rangeDescription, rangeLabel, suggestible } from "../shared/comments";
 import type { DiffFile } from "../shared/diff";
 import { type FileBlock, isWholeFile } from "../shared/guide";
@@ -183,7 +183,7 @@ function CommentCard({
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <Icon name="MessageSquare" size={12} color={theme.colors.foregroundMuted} />
         <Text style={{ flex: 1, fontSize: 12, color: theme.colors.foregroundMuted }}>
-          {rangeDescription(comment)} · Not sent yet
+          {rangeDescription(comment)} · Unsent
         </Text>
         <Button theme={theme} size="xs" variant="ghost" label="Edit" onPress={onEdit} />
         <Button theme={theme} size="xs" variant="ghost" label="Delete" onPress={onDelete} />
@@ -245,6 +245,15 @@ function CommentComposer({
   const setReplacement = (replacement: string | null) =>
     setEdit(replacement == null || original == null ? null : { of: original, replacement });
   const changed = body.trim() !== "" || suggestion != null;
+  const submit = (): void => {
+    if (changed) onSubmit(body.trim(), suggestion);
+  };
+  const submitOnModEnter = (event: NativeSyntheticEvent<TextInputKeyPressEventData>): void => {
+    const pressed: { key: string; ctrlKey?: boolean; metaKey?: boolean } = event.nativeEvent;
+    if (pressed.key !== "Enter" || !(pressed.ctrlKey === true || pressed.metaKey === true)) return;
+    event.preventDefault();
+    submit();
+  };
   const card = useRef<View>(null);
   const centre = useContext(CentreAboveKeyboard);
   useEffect(
@@ -264,6 +273,7 @@ function CommentComposer({
         autoCorrect
         value={body}
         onChangeText={setBody}
+        onKeyPress={submitOnModEnter}
         placeholder={suggestion == null ? "Leave a comment for the agent" : "Note for yourself (optional)"}
         placeholderTextColor={theme.colors.foregroundMuted}
         style={inputStyle(theme, 64)}
@@ -280,6 +290,7 @@ function CommentComposer({
               multiline
               value={suggestion.replacement}
               onChangeText={setReplacement}
+              onKeyPress={submitOnModEnter}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
@@ -302,7 +313,7 @@ function CommentComposer({
           variant="default"
           label={initialBody === "" && initialSuggestion == null ? "Add comment" : "Save"}
           disabled={!changed}
-          onPress={() => onSubmit(body.trim(), suggestion)}
+          onPress={submit}
         />
       </View>
     </View>

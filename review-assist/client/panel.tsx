@@ -15,12 +15,12 @@ import { ModeMenu } from "./mode-menu";
 import { ModelMenu } from "./model-menu";
 import { MONOSPACE, compactCount } from "./palette";
 import { fitsPane } from "./panes";
+import { LanguageFeatures } from "./peek";
 import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
 import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
 import { useCodeIntelligence } from "./use-code";
 import { commentStore, useReview } from "./use-review";
-import { isMonacoSupported } from "./web";
 
 type Menu = "mode" | "view" | "model";
 type SavedOptions = Pick<ReviewSettings, (typeof SAVED_KEYS)[number]>;
@@ -97,12 +97,11 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const { live } = review;
   if (drawerOpen && live.status !== "ready") setDrawerOpen(false);
   const [trustPrompt, setTrustPrompt] = useState(false);
-  const languageFeatures = isMonacoSupported();
   const trusted = review.trust === "trusted";
+  const projectId = workspace?.projectId;
+  const languageFeatures = useMemo(() => (trusted && projectId != null ? { projectId } : null), [trusted, projectId]);
   useCodeIntelligence(
-    languageFeatures && trusted && live.status === "ready" && workspace != null
-      ? { projectId: workspace.projectId, root: live.source.root }
-      : null,
+    languageFeatures != null && live.status === "ready" ? { ...languageFeatures, root: live.source.root } : null,
   );
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12 };
 
@@ -267,19 +266,17 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
             checked={view.hideWhitespace}
             onPress={() => setView({ hideWhitespace: !view.hideWhitespace })}
           />
-          {languageFeatures ? (
-            <MenuItem
-              theme={theme}
-              label="Hover and go to definition"
-              hint={trusted ? undefined : "Asks you to trust this project"}
-              checked={trusted}
-              onPress={() => {
-                setMenu(null);
-                if (trusted) review.setTrust(false);
-                else setTrustPrompt(true);
-              }}
-            />
-          ) : null}
+          <MenuItem
+            theme={theme}
+            label="Hover and go to definition"
+            hint={trusted ? undefined : "Asks you to trust this project"}
+            checked={trusted}
+            onPress={() => {
+              setMenu(null);
+              if (trusted) review.setTrust(false);
+              else setTrustPrompt(true);
+            }}
+          />
           <MenuSeparator theme={theme} />
           <MenuHeading theme={theme}>File list</MenuHeading>
           <MenuItem
@@ -308,7 +305,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         />
       </View>
 
-      {languageFeatures && review.trust === "undecided" ? (
+      {review.trust === "undecided" ? (
         <TrustNotice theme={theme} onTrust={() => setTrustPrompt(true)} onKeepOff={() => review.setTrust(false)} />
       ) : null}
       <TrustDialog
@@ -318,50 +315,52 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         onOpenChange={setTrustPrompt}
         onTrust={() => review.setTrust(true)}
       />
-      {live.status === "failed" ? (
-        <Text style={{ color: theme.colors.statusDanger, padding: 16 }}>{live.error}</Text>
-      ) : tab === "guided" ? (
-        <GuidedView
-          theme={theme}
-          narrow={narrow}
-          paneShown={paneShown}
-          onCloseDrawer={closeDrawer}
-          view={view}
-          onResizePane={resizePane}
-          fold={fold}
-          live={live}
-          guide={review.guide}
-          guideError={review.guideError}
-          generate={review.generate}
-          section={section}
-          onSection={(next) => setPlace({ ...place, section: next })}
-          scroll={place.scrollGuided}
-          onScroll={setScrollGuided}
-          stateLoaded={review.stateLoaded}
-          viewedMarks={review.state.viewed}
-          setViewed={review.setViewed}
-          comments={comments}
-          openAgent={navigation == null ? undefined : (agentId) => navigation.openAgent({ agentId })}
-        />
-      ) : live.status === "ready" ? (
-        <FullView
-          theme={theme}
-          narrow={narrow}
-          paneShown={paneShown}
-          onCloseDrawer={closeDrawer}
-          view={view}
-          onResizePane={resizePane}
-          fold={fold}
-          diff={live.diff}
-          source={live.source}
-          scroll={place.scrollFull}
-          onScroll={setScrollFull}
-          stateLoaded={review.stateLoaded}
-          comments={comments}
-        />
-      ) : (
-        <Loading />
-      )}
+      <LanguageFeatures.Provider value={languageFeatures}>
+        {live.status === "failed" ? (
+          <Text style={{ color: theme.colors.statusDanger, padding: 16 }}>{live.error}</Text>
+        ) : tab === "guided" ? (
+          <GuidedView
+            theme={theme}
+            narrow={narrow}
+            paneShown={paneShown}
+            onCloseDrawer={closeDrawer}
+            view={view}
+            onResizePane={resizePane}
+            fold={fold}
+            live={live}
+            guide={review.guide}
+            guideError={review.guideError}
+            generate={review.generate}
+            section={section}
+            onSection={(next) => setPlace({ ...place, section: next })}
+            scroll={place.scrollGuided}
+            onScroll={setScrollGuided}
+            stateLoaded={review.stateLoaded}
+            viewedMarks={review.state.viewed}
+            setViewed={review.setViewed}
+            comments={comments}
+            openAgent={navigation == null ? undefined : (agentId) => navigation.openAgent({ agentId })}
+          />
+        ) : live.status === "ready" ? (
+          <FullView
+            theme={theme}
+            narrow={narrow}
+            paneShown={paneShown}
+            onCloseDrawer={closeDrawer}
+            view={view}
+            onResizePane={resizePane}
+            fold={fold}
+            diff={live.diff}
+            source={live.source}
+            scroll={place.scrollFull}
+            onScroll={setScrollFull}
+            stateLoaded={review.stateLoaded}
+            comments={comments}
+          />
+        ) : (
+          <Loading />
+        )}
+      </LanguageFeatures.Provider>
     </View>
   );
 }

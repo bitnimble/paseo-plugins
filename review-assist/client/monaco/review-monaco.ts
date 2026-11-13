@@ -1,5 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { hashText } from "../../shared/hash";
+import { toHoverMarkdown, toLocations } from "../../shared/lsp";
 import type { LspMethod, MonacoAsset } from "../../shared/protocol";
 import { createDetachedNode, injectMonaco } from "../web";
 import type {
@@ -14,7 +15,7 @@ import type {
   MonacoRange,
   MonacoUri,
 } from "./api";
-import { toHoverMarkdown, toLocations, toLspPosition, toMonacoRange } from "./convert";
+import { toLspPosition, toMonacoRange } from "./convert";
 import { THEME_NAME, type SyntaxPalette, monacoTheme } from "./theme";
 
 export interface CodeSource {

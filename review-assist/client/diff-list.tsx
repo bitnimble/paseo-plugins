@@ -26,6 +26,11 @@ const RESTORE_MAX_TICKS = 24;
 const RESTORE_TICK_MS = 80;
 const RESTORE_FIRST_TICK_MS = 60;
 
+export interface RestorePoint {
+  readonly block: number;
+  readonly within: number;
+}
+
 export interface ScrollTarget {
   readonly blockIndex: number;
   readonly nonce: number;
@@ -64,9 +69,10 @@ interface DiffListProps {
   readonly heading?: (index: number) => ReactNode;
   /** Shown below the block at `index`, e.g. where a section ends. */
   readonly trailing?: (index: number) => ReactNode;
-  readonly onTopBlock?: (index: number) => void;
-  /** Block to scroll to the top once restore runs; kept in view as rows below it render in. */
-  readonly restore?: number;
+  /** `within` is how far past the top of the block, or the heading above it, the view's top is. */
+  readonly onTopBlock?: (index: number, within: number) => void;
+  /** Where to scroll once restore runs; kept in view as rows render in. */
+  readonly restore?: RestorePoint;
   /** Holds restore off until the saved place has loaded, so mount position is not persisted over it. */
   readonly restoreReady?: boolean;
   readonly onRestored?: () => void;
@@ -208,6 +214,11 @@ export function DiffList(props: DiffListProps) {
     [blocks],
   );
 
+  const reportTopBlock = useCallback((index: number): void => {
+    const top = blockTopOf(list.current, latest.current.props.blocks, index);
+    latest.current.props.onTopBlock?.(index, Math.max(0, (list.current?.offset() ?? 0) - (top ?? 0)));
+  }, []);
+
   const scrolledTo = useRef<number | null>(null);
   const restoreSuperseded = useRef(false);
   useEffect(() => {
@@ -243,7 +254,8 @@ export function DiffList(props: DiffListProps) {
         finish();
         return;
       }
-      const top = blockTopOf(list.current, latest.current.props.blocks, restore);
+      const blockTop = blockTopOf(list.current, latest.current.props.blocks, restore.block);
+      const top = blockTop == null ? null : blockTop + restore.within;
       if (top == null || ++ticks > RESTORE_MAX_TICKS) {
         finish();
         return;
@@ -334,7 +346,7 @@ export function DiffList(props: DiffListProps) {
             style={styles.list}
             scrollEnabled={!scrollLocked}
             bottomInset={bottomInset}
-            onTopBlock={props.onTopBlock}
+            onTopBlock={props.onTopBlock == null ? undefined : reportTopBlock}
           />
         </CentreAboveKeyboard.Provider>
       </ScrollLock.Provider>

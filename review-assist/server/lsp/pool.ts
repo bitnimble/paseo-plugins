@@ -210,7 +210,7 @@ function collectFilePaths(value: unknown, into: Set<string>): void {
 }
 
 /** Null for a file URL with a host or an encoded slash, which `fileURLToPath` rejects. */
-function filePathOf(uri: string): string | null {
+export function filePathOf(uri: string): string | null {
   try {
     return fileURLToPath(uri);
   } catch {

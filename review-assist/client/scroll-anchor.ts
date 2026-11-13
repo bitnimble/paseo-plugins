@@ -13,7 +13,12 @@ declare const window: {
   removeEventListener(type: "pagehide", listener: () => void): void;
 };
 
-export const scrollAnchorSchema = z.object({ section: z.number().int().optional(), path: z.string() });
+export const scrollAnchorSchema = z.object({
+  section: z.number().int().optional(),
+  path: z.string(),
+  /** How far past the top of the file's block the view's top was. */
+  within: z.number().optional(),
+});
 export type ScrollAnchor = z.infer<typeof scrollAnchorSchema>;
 
 export const SCROLL_PERSIST_MS = 500;
@@ -34,11 +39,22 @@ export function useRestoreGate(key: unknown): { markRestored: () => void; hasRes
   };
 }
 
-export function useDebouncedCallback<T extends unknown[]>(fn: (...args: T) => void, ms: number): (...args: T) => void {
+/** A call still pending when `key` changes is dropped: it was made about what `key` replaced. */
+export function useDebouncedCallback<T extends unknown[]>(
+  fn: (...args: T) => void,
+  ms: number,
+  key: unknown,
+): (...args: T) => void {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pending = useRef<T | null>(null);
   const latest = useRef(fn);
   latest.current = fn;
+  const seen = useRef(key);
+  if (seen.current !== key) {
+    seen.current = key;
+    clearTimeout(timer.current);
+    pending.current = null;
+  }
   const flush = useRef((): void => {
     if (pending.current == null) return;
     clearTimeout(timer.current);

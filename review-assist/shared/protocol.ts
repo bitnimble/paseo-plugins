@@ -224,6 +224,39 @@ export const highlightRpc = definePackedRpc({
   ]),
 });
 
+const lspPositionSchema = z.object({ line: z.number().int(), character: z.number().int() });
+
+const peekLocationSchema = z.object({
+  /** Relative to the root, or absolute outside it. */
+  path: z.string(),
+  range: z.object({ start: lspPositionSchema, end: lspPositionSchema }),
+  /** The 0-based line `lines` starts at. */
+  first: z.number().int(),
+  lines: z.array(z.string()),
+  tokens: lineTokensSchema.nullable(),
+});
+export type PeekLocation = z.infer<typeof peekLocationSchema>;
+
+const peekOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), hover: z.string().nullable(), locations: z.array(peekLocationSchema) }),
+  z.object({ status: z.literal("unsupported") }),
+  failedSchema,
+]);
+export type PeekOutcome = z.infer<typeof peekOutcomeSchema>;
+
+/** Definition and hover at `position` in `path` as `tree` holds it, with the lines around each definition. */
+export const peekRpc = definePackedRpc({
+  name: "review.peek",
+  input: z.object({
+    projectId: z.string(),
+    root: z.string(),
+    tree: z.string(),
+    path: z.string(),
+    position: lspPositionSchema,
+  }),
+  output: peekOutcomeSchema,
+});
+
 const colorSchemeSchema = z.enum(["dark", "light"]);
 
 export const paletteRpc = defineRpc({

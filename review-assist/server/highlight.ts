@@ -29,6 +29,12 @@ export async function highlightSides(
   };
 }
 
+/** Null for a language the highlighter lacks, or a file too large to highlight. */
+export function highlightFile(text: string, path: string): LineTokens | null {
+  if (!isLanguageSupported(path) || text.length > MAX_HIGHLIGHTED_CHARS) return null;
+  return encode(highlightCode(text, path));
+}
+
 export function syntaxPalette(scheme: "dark" | "light"): Record<string, string> {
   // Paseo's default highlight theme; plugins are not told which one the user picked.
   return resolveSyntaxColors("one", scheme);

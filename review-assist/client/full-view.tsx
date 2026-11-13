@@ -46,9 +46,10 @@ export function FullView({
     return view.fileList === "tree" ? treeOrder(all, (block) => block.file.path) : all;
   }, [diff, view.fileList]);
   const [target, setTarget] = useState<ScrollTarget | null>(null);
-  const gate = useRestoreGate(narrow);
-  const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
-  const restoreIndex = narrow && scroll != null ? blocks.findIndex((block) => block.file.path === scroll.path) : -1;
+  const listKey = narrow ? "narrow" : "wide";
+  const gate = useRestoreGate(listKey);
+  const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS, listKey);
+  const restoreIndex = scroll == null ? -1 : blocks.findIndex((block) => block.file.path === scroll.path);
   const counts = countByPath(comments.comments);
 
   if (blocks.length === 0) {
@@ -66,7 +67,7 @@ export function FullView({
       onCloseDrawer={onCloseDrawer}
       view={view}
       onResizePane={onResizePane}
-      listKey={narrow ? "narrow" : "wide"}
+      listKey={listKey}
       paneHeading={`${blocks.length} ${blocks.length === 1 ? "file" : "files"} changed`}
       pane={
         <FileList
@@ -89,16 +90,12 @@ export function FullView({
       target={target}
       fold={fold}
       comments={comments}
-      {...(narrow
-        ? {
-            restore: restoreIndex >= 0 ? restoreIndex : undefined,
-            restoreReady: stateLoaded,
-            onRestored: gate.markRestored,
-            onTopBlock: (blockIndex: number) => {
-              if (gate.hasRestored()) persist({ path: blocks[blockIndex].file.path });
-            },
-          }
-        : {})}
+      restore={restoreIndex < 0 ? undefined : { block: restoreIndex, within: scroll?.within ?? 0 }}
+      restoreReady={stateLoaded}
+      onRestored={gate.markRestored}
+      onTopBlock={(blockIndex, within) => {
+        if (gate.hasRestored()) persist({ path: blocks[blockIndex].file.path, within });
+      }}
     />
   );
 }

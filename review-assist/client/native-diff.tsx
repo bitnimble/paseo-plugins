@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Platform, Pressable, Text, View } from "react-native";
+import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Platform, Pressable, type StyleProp, Text, type TextStyle, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import type { DiffFile, DiffLine } from "../shared/diff";
 import { type Span, type SplitRow, splitRows, wordChanges } from "../shared/display";
@@ -26,7 +26,8 @@ import { CODE_FONT_SIZE, CODE_LINE_HEIGHT, type DiffStyles } from "./diff-styles
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE } from "./palette";
-import { type ColoredText, type FileSyntax, lineTokens } from "./syntax";
+import { LanguageFeatures, type PeekTarget, PeekView } from "./peek";
+import { type CodePiece, type FileSyntax, codePieces, expandTabs, lineTokens, wordAt } from "./syntax";
 import { useSyntax } from "./use-code";
 import { type WindowedRow, WindowedRows } from "./windowed-rows";
 
@@ -103,8 +104,37 @@ export function NativeBody({
       <CommentSlot theme={theme} file={block.file} card={card} comments={comments} />
     </Animated.View>
   );
+  const features = useContext(LanguageFeatures);
+  const newPath = block.file.newPath;
+  const [opened, setOpened] = useState<(PeekTarget & { tree: string; path: string | null }) | null>(null);
+  // A peek's line and column only mean anything in the file it was opened on.
+  const peekTarget = opened?.tree === source.tree && opened.path === newPath ? opened : null;
+  const peek: Peeking | null =
+    features == null || newPath == null
+      ? null
+      : {
+          open: (line, piece) => {
+            const word = wordAt(line.text, piece.start);
+            if (line.newNumber == null || word == null) return;
+            setOpened({ line: line.newNumber, character: word.start, word: word.text, tree: source.tree, path: newPath });
+          },
+          below: (lines) =>
+            peekTarget == null || !lines.some((line) => line?.newNumber === peekTarget.line) ? null : (
+              <Animated.View key={`peek:${peekTarget.line}:${peekTarget.character}`} style={pinned}>
+                <PeekView
+                  source={source}
+                  projectId={features.projectId}
+                  path={newPath}
+                  target={peekTarget}
+                  theme={theme}
+                  palette={palette}
+                  onClose={() => setOpened(null)}
+                />
+              </Animated.View>
+            ),
+        };
   const gutter = gutterWidth(block.file);
-  const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot };
+  const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot, peek };
   const gap = (from: number, to: number): WindowedRow[] =>
     to <= from
       ? []
@@ -232,12 +262,13 @@ interface RowProps {
   readonly cards: readonly Card[];
   readonly comments: FileComments;
   readonly slot: (card: Card) => ReactNode;
+  readonly peek: Peeking | null;
 }
 
 function hunkRows(
   hunk: ShownHunk,
   marks: ReadonlyMap<DiffLine, readonly Span[]>,
-  { file, gutter, view, styles, syntax, palette, cards, comments, slot }: RowProps,
+  { file, gutter, view, styles, syntax, palette, cards, comments, slot, peek }: RowProps,
 ): WindowedRow[] {
   const { lines } = hunk;
   const scope = draftScope(file, comments.draft, [lines]);
@@ -261,7 +292,7 @@ function hunkRows(
       onLongPress: () => comments.compose(lines, index, index, true),
     };
   };
-  const cell = { styles, syntax, palette, marks };
+  const cell = { styles, syntax, palette, marks, peek };
   const covers = (line: DiffLine | null, side: CommentTarget["side"]) =>
     line != null && scope?.side === side && inScope(scope, line);
   return view.layout === "split" ? splitBody() : unifiedBody();
@@ -279,6 +310,7 @@ function hunkRows(
         render: () => (
           <>
             <SplitLineRow row={row} gutter={gutter} gutterFor={gutterFor} edges={[oldEdges[i], newEdges[i]]} {...cell} />
+            {peek?.below([row.left, row.right])}
             {indexes.flatMap(cardsAt).map(slot)}
           </>
         ),
@@ -295,6 +327,7 @@ function hunkRows(
       render: () => (
         <>
           <LineRow line={line} gutter={gutter} wrap={!scrollsSideways(view)} press={gutterFor(line)} edge={edges[i]} {...cell} />
+          {peek?.below([line])}
           {cardsAt(i).map(slot)}
         </>
       ),
@@ -318,6 +351,14 @@ interface CellProps {
   readonly palette: SyntaxPalette | null;
   /** The changed words of the lines that have them. */
   readonly marks: ReadonlyMap<DiffLine, readonly Span[]>;
+  /** Null until the project is trusted with a language server. */
+  readonly peek: Peeking | null;
+}
+
+interface Peeking {
+  open(line: DiffLine, piece: CodePiece): void;
+  /** The open peek, when it is on one of `lines`. */
+  below(lines: readonly (DiffLine | null)[]): ReactNode;
 }
 
 function LineRow({
@@ -340,9 +381,7 @@ function LineRow({
           style={look.number}
           press={press}
         />
-        <Text style={wrap ? styles.code : styles.codeSideways} selectable>
-          {codeContent(line, cell)}
-        </Text>
+        <CodeText line={line} style={wrap ? styles.code : styles.codeSideways} {...cell} />
       </View>
       {line.noNewlineMarker == null ? null : (
         <MutedRow text={line.noNewlineMarker.slice(2)} gutter={gutter} styles={styles} />
@@ -413,9 +452,7 @@ function SplitCell({
     <View style={[styles.splitCell, look.row]}>
       <ScopeMark edge={edge} styles={styles} />
       <LineNumber number={number} gutter={gutter} style={look.number} press={gutterFor(line)} />
-      <Text style={styles.code} selectable>
-        {codeContent(line, cell)}
-      </Text>
+      <CodeText line={line} style={styles.code} {...cell} />
     </View>
   );
 }
@@ -449,32 +486,33 @@ function LineNumber({
   );
 }
 
-function codeContent(line: DiffLine, { syntax, palette, marks, styles }: CellProps): ReactNode {
+function CodeText({ line, style, ...cell }: CellProps & { line: DiffLine; style: StyleProp<TextStyle> }) {
+  const { syntax, palette, marks, styles, peek } = cell;
   const tokens = lineTokens(syntax, palette, line);
   const spans = marks.get(line);
-  if (tokens == null && spans == null) return expandTabs(line.text);
-  const mark = line.kind === "add" ? styles.addMark : styles.delMark;
-  return markedPieces(tokens ?? [{ text: line.text, color: null }], spans ?? []).map((piece, i) => (
-    <Text key={i} style={[piece.color == null ? undefined : { color: piece.color }, piece.marked && mark]}>
-      {expandTabs(piece.text)}
-    </Text>
-  ));
-}
-
-function markedPieces(tokens: readonly ColoredText[], spans: readonly Span[]): (ColoredText & { marked: boolean })[] {
-  const pieces: (ColoredText & { marked: boolean })[] = [];
-  let offset = 0;
-  for (const token of tokens) {
-    const end = offset + token.text.length;
-    const cuts = [offset, ...spans.flatMap(({ start, end: stop }) => [start, stop]).filter((at) => at > offset && at < end), end];
-    for (let i = 0; i + 1 < cuts.length; i++) {
-      const text = token.text.slice(cuts[i] - offset, cuts[i + 1] - offset);
-      const marked = spans.some(({ start, end: stop }) => cuts[i] >= start && cuts[i] < stop);
-      if (text !== "") pieces.push({ text, color: token.color, marked });
-    }
-    offset = end;
+  const peekable = peek != null && line.newNumber != null;
+  if (tokens == null && spans == null && !peekable) {
+    return (
+      <Text style={style} selectable>
+        {expandTabs(line.text)}
+      </Text>
+    );
   }
-  return pieces;
+  const mark = line.kind === "add" ? styles.addMark : styles.delMark;
+  return (
+    // Not selectable while words peek: selection would take the long-press.
+    <Text style={style} selectable={!peekable}>
+      {codePieces(tokens ?? [{ text: line.text, color: null }], spans ?? [], peekable).map((piece) => (
+        <Text
+          key={piece.start}
+          style={[piece.color == null ? undefined : { color: piece.color }, piece.marked && mark]}
+          onLongPress={peekable && piece.word ? () => peek.open(line, piece) : undefined}
+        >
+          {expandTabs(piece.text)}
+        </Text>
+      ))}
+    </Text>
+  );
 }
 
 function MutedRow({ text, gutter, styles }: { text: string; gutter: number; styles: DiffStyles }) {
@@ -492,10 +530,6 @@ function lineLook(line: DiffLine, styles: DiffStyles): { row: DiffStyles["row"];
   if (line.kind === "add") return { row: styles.addRow, number: styles.addNumber };
   if (line.kind === "del") return { row: styles.delRow, number: styles.delNumber };
   return { row: styles.row, number: styles.number };
-}
-
-function expandTabs(text: string): string {
-  return text.replace(/\t/g, "    ");
 }
 
 function gutterWidth(file: DiffFile): number {

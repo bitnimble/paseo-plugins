@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { readDiff } from "../server/git";
 import { UNCOMMITTED_MODE } from "../shared/protocol";
 import { decodeMessages, encodeMessage } from "../server/lsp/framing";
+import { peek } from "../server/lsp/peek";
 import { LanguageServers } from "../server/lsp/pool";
 import { LspSession } from "../server/lsp/session";
 import { TreeFiles } from "../server/trees";
@@ -22,7 +23,8 @@ const hasServer = (() => {
 })();
 
 let repo = "";
-const servers = new LanguageServers(new TreeFiles());
+const trees = new TreeFiles();
+const servers = new LanguageServers(trees);
 
 before(() => {
   repo = freshRepo();
@@ -57,6 +59,29 @@ test("definition at a call site in the diff resolves to the declaration", { skip
   const outside = join(scratchDirectory(), "elsewhere.ts");
   writeFileSync(outside, "export {};\n");
   await assert.rejects(servers.readFile(snapshot.root, outside), /No language server reported/);
+});
+
+test("a peek at a call site carries the declaration's lines, highlighted, and its hover", { skip: !hasServer }, async () => {
+  const snapshot = await readDiff(repo, UNCOMMITTED_MODE);
+  const outcome = await peek(servers, trees, {
+    root: snapshot.root,
+    tree: snapshot.tree,
+    path: "use.ts",
+    position: { line: 2, character: 24 },
+  });
+  assert.equal(outcome.status, "ok");
+  if (outcome.status !== "ok") return;
+  assert.match(outcome.hover ?? "", /greet\(name: string\): string/);
+  const [location] = outcome.locations;
+  assert.equal(location?.path, "lib.ts");
+  assert.equal(location?.first, 0);
+  assert.deepEqual(location?.lines.slice(0, 3), [
+    "export function greet(name: string): string {",
+    "  return `hi ${name}`;",
+    "}",
+  ]);
+  assert.deepEqual(location?.range.start, { line: 0, character: 16 });
+  assert.equal(location?.tokens?.length, location?.lines.length);
 });
 
 test("a symlink out of the repository is not readable", async () => {

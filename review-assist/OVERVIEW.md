@@ -27,7 +27,7 @@ the Explorer. Pick which diff to review:
   that branch's merge-base.
 
 Guides, viewed marks and comments are kept separately for each choice. Each Review tab reopens on
-the diff it was showing, Guided or Full diff, and its section.
+the diff it was showing, Guided or Full diff, its section, and where it was scrolled to.
 
 **View** switches between unified and split layouts, wraps long lines, hides lines that only
 changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.
@@ -57,7 +57,11 @@ and hover for its type, through a language server the daemon runs for the reposi
 repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
 behind them. On phones and tablets, and while Monaco loads or when it cannot, the panel shows the diff with
 Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
-row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap.
+row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap. Once
+you trust the project, long-press a word on any line but a removed one to peek at its definition in
+a frame opened under the line, as Monaco's peek is, with its type at the top; the arrows in the
+frame's title step through a word's other definitions. While words can be long-pressed, the code's
+text can't be selected.
 Changed images show before and after, as GitHub does, and pressing either opens it full size to zoom
 and pan; a text file whose diff `.gitattributes` turns off (`-diff`) says so instead of passing for
 binary. Git LFS files show only their pointer's size change until **Fetch and compare** downloads
@@ -120,7 +124,8 @@ them change.
 
 Hover a line in Monaco and press **+** to comment on it; select several lines first to comment on
 all of them. In the built-in view, tap a line number, and long-press another to widen the comment.
-Comments are drafts kept on the daemon until you send them. **N comments** in the toolbar sends
+Ctrl+Enter, or Cmd+Enter on a Mac, saves the comment you are writing. Comments are drafts kept on the
+daemon until you send them. **N comments** in the toolbar sends
 them all to an agent in the workspace, with an optional message, as the same review attachment
 Paseo's Changes panel sends; a running agent takes them into its current turn. In a workspace
 with no agent yet, pick a model, mode and thinking level, and sending starts one with them, so the

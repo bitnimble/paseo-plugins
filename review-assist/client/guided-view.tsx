@@ -10,7 +10,7 @@ import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
 import { countByPath } from "./comments";
 import { Button, Notice } from "./controls";
-import type { CommentStore, FileViewing, FoldCommand, ScrollTarget } from "./diff-list";
+import type { CommentStore, FileViewing, FoldCommand, RestorePoint, ScrollTarget } from "./diff-list";
 import { FileList, Filtered } from "./panes";
 import { ReviewSplit } from "./review-split";
 import { SCROLL_PERSIST_MS, type ScrollAnchor, useDebouncedCallback, useRestoreGate } from "./scroll-anchor";
@@ -202,9 +202,6 @@ function Sections({
   const [target, setTarget] = useState<ScrollTarget | null>(null);
   const [topSection, setTopSection] = useState(0);
   const continuous = view.sections === "continuous";
-  // null while paged so the gate resets when a continuous DiffList remounts and restores afresh.
-  const gate = useRestoreGate(continuous ? record.createdAt : null);
-  const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS);
   const blocksBySection = useMemo(() => {
     const sections = guideBlocks(diff, record.sections);
     return view.fileList === "tree"
@@ -218,12 +215,26 @@ function Sections({
   );
   const count = record.sections.length;
   const index = Math.min(selected, count - 1);
+  const section = record.sections[index];
+  const blocks = blocksBySection[index];
+  const listKey = continuous ? record.createdAt : `${record.createdAt}:${section.id}`;
+  // Keyed like the DiffList, so each remount restores afresh.
+  const gate = useRestoreGate(listKey);
+  const persist = useDebouncedCallback(onScroll, SCROLL_PERSIST_MS, listKey);
+  const listBlocks = continuous ? allBlocks : blocks;
+  const sectionAt = (blockIndex: number): number => (continuous ? sectionOfBlock[blockIndex] : index);
   const anchored =
     scroll == null
       ? -1
-      : allBlocks.findIndex((block, i) => block.file.path === scroll.path && sectionOfBlock[i] === scroll.section);
+      : listBlocks.findIndex((block, i) => block.file.path === scroll.path && sectionAt(i) === scroll.section);
+  const sectionStart = continuous ? sectionOfBlock.indexOf(index) : -1;
   // Paging since the anchor was saved moves the selected section, not the anchor.
-  const restoreIndex = !continuous ? -1 : sectionOfBlock[anchored] === index ? anchored : sectionOfBlock.indexOf(index);
+  const restore: RestorePoint | undefined =
+    anchored >= 0 && sectionAt(anchored) === index
+      ? { block: anchored, within: scroll?.within ?? 0 }
+      : sectionStart >= 0
+        ? { block: sectionStart, within: 0 }
+        : undefined;
   const fingerprints = useMemo(
     () => new Map(allBlocks.map((block) => [block, blockFingerprint(block)])),
     [allBlocks],
@@ -240,8 +251,6 @@ function Sections({
   const isViewed = (block: FileBlock) => marks.has(viewedMarkKey(markOf(block)));
   const setBlocksViewed = (files: readonly FileBlock[], value: boolean) => setViewed(files.map(markOf), value);
   const sectionViewed = blocksBySection.map((files) => files.every(isViewed));
-  const section = record.sections[index];
-  const blocks = blocksBySection[index];
   const hasNext = index < count - 1;
   const viewed: FileViewing = { isViewed, setViewed: (block, value) => setBlocksViewed([block], value) };
   const commentCounts = countByPath(comments.comments);
@@ -392,23 +401,23 @@ function Sections({
       fold={fold}
       viewed={viewed}
       comments={comments}
+      listKey={listKey}
+      blocks={listBlocks}
+      restore={restore}
+      restoreReady={stateLoaded && allBlocks.length > 0}
+      onRestored={gate.markRestored}
+      onTopBlock={(blockIndex, within) => {
+        setTopSection(sectionAt(blockIndex));
+        if (gate.hasRestored()) persist({ section: sectionAt(blockIndex), path: listBlocks[blockIndex].file.path, within });
+      }}
       {...(continuous
         ? {
-            listKey: record.createdAt,
-            blocks: allBlocks,
-            restore: restoreIndex >= 0 ? restoreIndex : undefined,
-            restoreReady: stateLoaded && allBlocks.length > 0,
-            onRestored: gate.markRestored,
             heading: (blockIndex: number) =>
               sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex - 1] ? null : headingFor(sectionOfBlock[blockIndex]),
             trailing: (blockIndex: number) =>
               sectionOfBlock[blockIndex] === sectionOfBlock[blockIndex + 1] ? null : trailingFor(sectionOfBlock[blockIndex]),
-            onTopBlock: (blockIndex: number) => {
-              setTopSection(sectionOfBlock[blockIndex]);
-              if (gate.hasRestored()) persist({ section: sectionOfBlock[blockIndex], path: allBlocks[blockIndex].file.path });
-            },
           }
-        : { listKey: `${record.createdAt}:${section.id}`, blocks, header: headingFor(index), footer })}
+        : { header: headingFor(index), footer })}
     />
   );
 }
