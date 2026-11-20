@@ -295,6 +295,37 @@ test("a failed run on the first model moves to the backup, archiving the failed 
   }
 });
 
+test("an answer followed by more talk, such as a Stop hook's reply, is still found", async () => {
+  const created: string[] = [];
+  const assistant = (text: string) => ({ item: { type: "assistant_message", text } });
+  const paseo = {
+    workspaces: {
+      ref: () => ({
+        agents: {
+          create: async ({ config }: { config: { provider: string } }) => ({
+            id: `${config.provider}#${created.push(config.provider)}`,
+            waitForFinish: async () => idle("Not mine to fix."),
+            timeline: {
+              refetch: async () => ({
+                entries: [
+                  assistant(JSON.stringify({ sections: [{ title: "Stale", description: "" }] })),
+                  assistant(USABLE),
+                  { item: { type: "user_message", text: "Stop hook feedback" } },
+                  assistant("Not mine to fix."),
+                ],
+              }),
+            },
+            archive: async () => ({}),
+          }),
+        },
+      }),
+    },
+  } as unknown as PluginHandlerContext["paseo"];
+
+  assert.deepEqual(titles(await proposeWithBackup(paseo)), ["Done"]);
+  assert.deepEqual(created, ["main"]);
+});
+
 test("a model that cannot start an agent moves to the backup", async () => {
   const { paseo, created, archived } = fallbackPaseo((model) => {
     if (model === "main") throw new Error("provider unavailable");

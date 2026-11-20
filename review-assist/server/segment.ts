@@ -6,6 +6,7 @@ import { messageOf } from "../shared/errors";
 import { modelsToTry } from "../shared/models";
 
 type Paseo = PluginHandlerContext["paseo"];
+type AgentHandle = ReturnType<Paseo["agents"]["ref"]>;
 type Section = Proposal["sections"][number];
 
 const SEGMENT_TIMEOUT_MS = 20 * 60_000;
@@ -15,6 +16,7 @@ const HUNK_TAIL_LINES = 50;
 export const PROMPT_BUDGET_CHARS = 300_000;
 const MAX_PARALLEL_AGENTS = 4;
 const MAX_QUOTED_ANSWER_CHARS = 240;
+const ANSWER_SEARCH_ENTRIES = 200;
 
 const mergeSchema = z.object({
   sections: z.array(z.object({ title: z.string(), description: z.string(), parts: z.array(z.string()) })),
@@ -313,7 +315,7 @@ async function askModel<Answer>(
   }
   let parsed: Answer;
   try {
-    parsed = answer.parse(result.lastMessage);
+    parsed = await parseLatestAnswer(agent, result.lastMessage, answer);
   } catch (error) {
     throw new SegmentError(
       `The guided review agent's answer was unusable: ${messageOf(error)}`,
@@ -323,6 +325,36 @@ async function askModel<Answer>(
   }
   await agent.archive().catch(() => undefined);
   return parsed;
+}
+
+async function parseLatestAnswer<Answer>(
+  agent: AgentHandle,
+  lastMessage: string,
+  answer: AnswerFormat<Answer>,
+): Promise<Answer> {
+  try {
+    return answer.parse(lastMessage);
+  } catch (error) {
+    // A Stop hook can keep the agent talking after it answers, burying the answer under its last message.
+    const earlier = await assistantMessagesNewestFirst(agent).catch((): string[] => []);
+    for (const text of earlier) {
+      try {
+        return answer.parse(text);
+      } catch {
+        continue;
+      }
+    }
+    throw error;
+  }
+}
+
+async function assistantMessagesNewestFirst(agent: AgentHandle): Promise<string[]> {
+  const { entries } = await agent.timeline.refetch({
+    direction: "tail",
+    projection: "projected",
+    limit: ANSWER_SEARCH_ENTRIES,
+  });
+  return entries.flatMap(({ item }) => (item.type === "assistant_message" ? [item.text] : [])).reverse();
 }
 
 async function archiveFailed(paseo: Paseo, error: unknown): Promise<void> {
