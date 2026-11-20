@@ -12,6 +12,7 @@ import {
   proposeSections,
   segmentPrompt,
 } from "../server/segment";
+import type { ContextLine, PromptContext } from "../server/prompt-context";
 import { parseDiff } from "../shared/diff";
 import { messageOf } from "../shared/errors";
 
@@ -231,25 +232,138 @@ test("a diff of only generated files asks no agent", async () => {
   assert.deepEqual(proposal, { sections: [] });
 });
 
+const TWO_HUNKS = parseDiff(`diff --git a/a.ts b/a.ts
+index 1111111..2222222 100644
+--- a/a.ts
++++ b/a.ts
+@@ -3,1 +3,1 @@
+-x
++X
+@@ -6,1 +6,1 @@
+-y
++Y
+`);
+const line = (number: number, text: string): ContextLine => ({ number, text });
+const TWO_HUNKS_CONTEXT: PromptContext = new Map([
+  ["h0", { side: "new", scope: [line(1, "class A {")], before: [line(2, "  run() {")], after: [line(4, "m1"), line(5, "m2")] }],
+  [
+    "h1",
+    {
+      side: "new",
+      scope: [line(1, "class A {"), line(2, "  run() {")],
+      before: [line(4, "m1"), line(5, "m2")],
+      after: [line(7, "  }")],
+    },
+  ],
+]);
+const hunksOf = (chunk: string): string => chunk.slice(chunk.indexOf("HUNK"));
+
+test("context is unnumbered around a hunk's numbered lines, and a later hunk leaves out what's already shown", () => {
+  const [chunk] = diffChunks(TWO_HUNKS, PROMPT_BUDGET_CHARS, TWO_HUNKS_CONTEXT);
+
+  assert.equal(
+    hunksOf(chunk),
+    [
+      "HUNK h0 lines 0-1 @@ -3,1 +3,1 @@",
+      "scope\t class A {",
+      "near\t   run() {",
+      "0\t-x",
+      "1\t+X",
+      "near\t m1",
+      "near\t m2",
+      "HUNK h1 lines 0-1 @@ -6,1 +6,1 @@",
+      "0\t-y",
+      "1\t+Y",
+      "near\t   }",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("a file split across parts repeats the context each part needs", () => {
+  const parts = diffChunks(TWO_HUNKS, 1, TWO_HUNKS_CONTEXT);
+
+  assert.equal(parts.length, 2);
+  assert.equal(
+    hunksOf(parts[1]),
+    [
+      "HUNK h1 lines 0-1 @@ -6,1 +6,1 @@",
+      "scope\t class A {",
+      "scope\t   run() {",
+      "near\t m1",
+      "near\t m2",
+      "0\t-y",
+      "1\t+Y",
+      "near\t   }",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("a header hidden in the elided middle of a huge hunk is still shown for a later hunk", () => {
+  const added = Array.from({ length: 400 }, (_, index) => `+l${index + 1}`).join("\n");
+  const diff = parseDiff(`diff --git a/big.ts b/big.ts
+index 1111111..2222222 100644
+--- a/big.ts
++++ b/big.ts
+@@ -0,0 +1,400 @@
+${added}
+@@ -100,1 +500,1 @@
+-z
++Z
+`);
+  const context: PromptContext = new Map([
+    ["h0", { side: "new", scope: [], before: [], after: [] }],
+    ["h1", { side: "new", scope: [line(10, "l10"), line(320, "function middle() {")], before: [], after: [] }],
+  ]);
+
+  const [chunk] = diffChunks(diff, PROMPT_BUDGET_CHARS, context);
+
+  assert.match(chunk, /HUNK h1 lines 0-1 @@ -100,1 \+500,1 @@\nscope\t function middle\(\) \{\n0\t-z\n/);
+});
+
 const USABLE = JSON.stringify({ sections: [{ title: "Done", description: "" }] });
-type Finish = { status: string; lastMessage: string | null; error: string | null };
+type Finish = {
+  status: string;
+  lastMessage: string | null;
+  error: string | null;
+  final?: { pendingPermissions: { id: string }[] };
+};
+type PermissionReply = { requestId: string; response: { behavior: string; message?: string } };
 const idle = (lastMessage: string | null): Finish => ({ status: "idle", lastMessage, error: null });
 const errored = (error: string): Finish => ({ status: "error", lastMessage: null, error });
+const asking = (...ids: string[]): Finish => ({
+  status: "permission",
+  lastMessage: null,
+  error: null,
+  final: { pendingPermissions: ids.map((id) => ({ id })) },
+});
 
-/** Agents named `<model>#<n>`; `finish` decides how each model's agents end, and throwing rejects the create. */
-function fallbackPaseo(finish: (model: string, prompt: string) => Finish) {
+/**
+ * Agents named `<model>#<n>`; `finish` decides how each model's agents end, as one result or a
+ * sequence whose last repeats, and throwing rejects the create.
+ */
+function fallbackPaseo(finish: (model: string, prompt: string) => Finish | Finish[]) {
   const created: string[] = [];
   const archived: string[] = [];
+  const replies: PermissionReply[] = [];
+  const waits: number[] = [];
   const paseo = {
     workspaces: {
       ref: () => ({
         agents: {
           create: async ({ prompt, config }: { prompt: string; config: { provider: string } }) => {
             const id = `${config.provider}#${created.push(config.provider)}`;
-            const result = finish(config.provider, prompt);
+            const results = [finish(config.provider, prompt)].flat();
             return {
               id,
-              waitForFinish: async () => result,
+              waitForFinish: async (timeoutMs: number) => {
+                waits.push(timeoutMs);
+                return results.length > 1 ? results.shift() : results[0];
+              },
+              respondToPermission: async (reply: PermissionReply) => {
+                replies.push(reply);
+              },
               archive: async () => {
                 archived.push(id);
                 return {};
@@ -268,7 +382,7 @@ function fallbackPaseo(finish: (model: string, prompt: string) => Finish) {
       }),
     },
   } as unknown as PluginHandlerContext["paseo"];
-  return { paseo, created, archived };
+  return { paseo, created, archived, replies, waits };
 }
 
 const proposeWithBackup = (paseo: PluginHandlerContext["paseo"], models = new ModelFallback(["main", "backup"])) =>
@@ -326,6 +440,27 @@ test("an answer followed by more talk, such as a Stop hook's reply, is still fou
   assert.deepEqual(created, ["main"]);
 });
 
+test("permission requests are each denied once, waited out while still listed, and the agent carries on", async () => {
+  const { paseo, created, replies, waits } = fallbackPaseo(() => [
+    asking("edit-1", "bash-1"),
+    asking("edit-1"),
+    idle(USABLE),
+  ]);
+
+  assert.deepEqual(titles(await proposeWithBackup(paseo)), ["Done"]);
+
+  assert.deepEqual(created, ["main"]);
+  assert.deepEqual(
+    replies.map(({ requestId, response }) => [requestId, response.behavior, response.message != null]),
+    [
+      ["edit-1", "deny", true],
+      ["bash-1", "deny", true],
+    ],
+  );
+  assert.equal(waits.length, 3);
+  assert.ok(waits.every(Number.isInteger), `whole-millisecond timeouts, got ${waits.join(", ")}`);
+});
+
 test("a model that cannot start an agent moves to the backup", async () => {
   const { paseo, created, archived } = fallbackPaseo((model) => {
     if (model === "main") throw new Error("provider unavailable");
@@ -338,24 +473,18 @@ test("a model that cannot start an agent moves to the backup", async () => {
   assert.deepEqual(archived, ["backup#2"]);
 });
 
-test("an agent stuck on a permission or out of time stops the run without trying the backup", async () => {
-  const stuck: [Finish["status"], RegExp, string[]][] = [
-    ["permission", /waiting on a permission request/, []],
-    ["timeout", /did not finish in time/, ["main#1"]],
-  ];
-  for (const [status, message, expectedArchived] of stuck) {
-    const { paseo, created, archived } = fallbackPaseo(() => ({ status, lastMessage: null, error: null }));
+test("an agent out of time is stopped and the run ends without trying the backup", async () => {
+  const { paseo, created, archived } = fallbackPaseo(() => ({ status: "timeout", lastMessage: null, error: null }));
 
-    await assert.rejects(proposeWithBackup(paseo), (error: unknown) => {
-      assert.ok(error instanceof SegmentError);
-      assert.match(error.message, message);
-      assert.equal(error.agentId, "main#1");
-      return true;
-    });
+  await assert.rejects(proposeWithBackup(paseo), (error: unknown) => {
+    assert.ok(error instanceof SegmentError);
+    assert.match(error.message, /did not finish in time/);
+    assert.equal(error.agentId, "main#1");
+    return true;
+  });
 
-    assert.deepEqual(created, ["main"]);
-    assert.deepEqual(archived, expectedArchived);
-  }
+  assert.deepEqual(created, ["main"]);
+  assert.deepEqual(archived, ["main#1"]);
 });
 
 test("losing track of a running agent stops the run, so no backup runs alongside it", async () => {
@@ -406,13 +535,13 @@ test("when the backup fails too, the error names both failures and keeps the las
 
 test("the first model's reason survives a backup that gets stuck or cannot start", async () => {
   const onStuck = fallbackPaseo((model) =>
-    model === "main" ? errored("quota exceeded") : { status: "permission", lastMessage: null, error: null },
+    model === "main" ? errored("quota exceeded") : { status: "timeout", lastMessage: null, error: null },
   );
   await assert.rejects(proposeWithBackup(onStuck.paseo), (error: unknown) => {
     assert.ok(error instanceof SegmentError);
     assert.equal(
       error.message,
-      "main failed: quota exceeded\nbackup failed: The guided review agent is waiting on a permission request.",
+      "main failed: quota exceeded\nbackup failed: The guided review agent did not finish in time and was stopped.",
     );
     assert.equal(error.agentId, "backup#2");
     return true;

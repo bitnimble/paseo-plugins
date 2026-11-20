@@ -5,6 +5,8 @@ import {
   SettingsCard,
   SettingsRow,
   SettingsSection,
+  SettingsSelect,
+  SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -34,6 +36,11 @@ const MODEL_ROWS = [
   },
 ] as const;
 type ModelKey = (typeof MODEL_ROWS)[number]["key"];
+
+const CONTEXT_LINE_OPTIONS = [0, 3, 5, 10, 20].map((lines) => ({
+  label: lines === 0 ? "None" : `${lines} lines`,
+  value: String(lines),
+}));
 
 export function ReviewSettingsScreen(props: PluginSurfaceProps) {
   const [menu, setMenu] = useState<ModelKey | null>(null);
@@ -108,6 +115,29 @@ function ModelSettings({
               </SettingsRow>
             </View>
           ))}
+          <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+            <SettingsSelect
+              label="Surrounding lines"
+              hint="Unchanged lines shown to the model on each side of every change, besides the diff's own."
+              value={String(settings.values.promptContextLines)}
+              options={CONTEXT_LINE_OPTIONS}
+              disabled={settings.saving}
+              error={settings.saveError}
+              onValueChange={(next) =>
+                void settings.save({ ...settings.values, promptContextLines: Number(next) }, settings.revision)
+              }
+            />
+          </View>
+          <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+            <SettingsSwitch
+              label="Enclosing declarations"
+              hint="Show the model the signatures of the functions, classes and modules each change sits in."
+              value={settings.values.promptScope}
+              disabled={settings.saving}
+              error={settings.saveError}
+              onValueChange={(next) => void settings.save({ ...settings.values, promptScope: next }, settings.revision)}
+            />
+          </View>
         </View>
       </SettingsSection>
     </View>

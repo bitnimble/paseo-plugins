@@ -2,8 +2,9 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { parseDiff } from "../shared/diff";
 import { buildGuide } from "../shared/guide";
 import { type GuideJob, type GuideRecord, guideRecordSchema } from "../shared/protocol";
-import type { ReviewSettings } from "../shared/settings";
-import { readDiff } from "./git";
+import { type ReviewSettings, reviewSettings } from "../shared/settings";
+import { readBlob, readDiff } from "./git";
+import { readPromptContext } from "./prompt-context";
 import { messageOf } from "../shared/errors";
 import { SegmentError, proposeSections, resolveModels } from "./segment";
 import { JsonSlots, type Target, targetKey, targetSlot } from "./slots";
@@ -14,7 +15,7 @@ export class GuideStore {
 
   constructor(
     directory: string,
-    private readonly modelSettings: () => Promise<Pick<ReviewSettings, "model" | "backupModel">>,
+    private readonly settings: () => Promise<Partial<ReviewSettings>>,
   ) {
     this.records = new JsonSlots(directory, guideRecordSchema);
   }
@@ -57,12 +58,18 @@ export class GuideStore {
       throw new Error("There are no changes to review.");
     }
     const diff = parseDiff(snapshot.raw, snapshot.facts);
-    const { model, backupModel } = await this.modelSettings();
-    const models = await resolveModels(paseo, target.directory, model, backupModel);
+    const settings = reviewSettings.schema.parse(await this.settings());
+    const models = await resolveModels(paseo, target.directory, settings.model, settings.backupModel);
+    const context = await readPromptContext(
+      diff,
+      (side, path) => readBlob(snapshot.root, side === "new" ? snapshot.tree : snapshot.base.sha, path),
+      { lines: settings.promptContextLines, scope: settings.promptScope },
+    );
     const proposal = await proposeSections(paseo, {
       workspaceId: target.workspaceId,
       models,
       diff,
+      context,
       onAgent: (agentId) => {
         const job = this.jobs.get(key);
         if (job?.status === "running") this.jobs.set(key, { ...job, agentId });

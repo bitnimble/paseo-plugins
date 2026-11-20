@@ -7,6 +7,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { ReviewStates } from "../server/review-state";
 import { GuideStore } from "../server/store";
 import { type DraftComment, UNCOMMITTED_MODE } from "../shared/protocol";
+import type { ReviewSettings } from "../shared/settings";
 import { freshRepo, gitIn, removeScratch, scratchDirectory, writeIn } from "./repo";
 
 after(removeScratch);
@@ -97,6 +98,36 @@ test("a generation runs one agent, stores a private guide and archives the agent
   const files = readdirSync(cache);
   assert.equal(files.length, 1);
   assert.equal(statSync(join(cache, files[0])).mode & 0o777, 0o600);
+});
+
+async function promptWith(settings: Partial<ReviewSettings>): Promise<string> {
+  const repo = freshRepo();
+  const body = ["a", "b", "c", "d", "e", "f", "g"].map((name, index) => `    const ${name} = ${index + 1};`);
+  const source = (lines: string[]) => ["export class Store {", "  load(): void {", ...lines, "  }", "}", ""].join("\n");
+  writeIn(repo, "store.ts", source(body));
+  gitIn(repo, "add", "-A");
+  gitIn(repo, "commit", "-q", "-m", "base");
+  writeIn(repo, "store.ts", source(body.map((line) => line.replace("e = 5", "e = 50"))));
+  const { paseo, calls } = fakePaseo(ANSWER);
+  const store = new GuideStore(scratchDirectory(), async () => settings);
+
+  store.generate({ ...target(repo), workspaceId: "w" }, paseo);
+  await settled(store, repo);
+  return calls.prompts[0];
+}
+
+test("the prompt carries the configured surrounding lines and enclosing declarations from the repository", async () => {
+  const prompt = await promptWith({ promptContextLines: 1, promptScope: true });
+
+  assert.match(prompt, /\nscope\t export class Store \{\nscope\t {3}load\(\): void \{\nnear\t {5}const a = 1;\n0\t {5}const b = 2;\n/);
+  assert.match(prompt, /\n7\t {3}\}\nnear\t \}\n<\/diff>/);
+});
+
+test("context is on by default and gone with both settings off", async () => {
+  const contextLines = (prompt: string) => prompt.split("\n").filter((line) => /^(?:scope|near)\t/.test(line)).length;
+
+  assert.equal(contextLines(await promptWith({})), 4);
+  assert.equal(contextLines(await promptWith({ promptContextLines: 0, promptScope: false })), 0);
 });
 
 test("viewed marks and comments persist through concurrent writes and a new guide", async () => {

@@ -4,9 +4,12 @@ import { LINE_PREFIX, type DiffFile, type DiffHunk, type ParsedDiff } from "../s
 import { type Proposal, proposalSchema } from "../shared/guide";
 import { messageOf } from "../shared/errors";
 import { modelsToTry } from "../shared/models";
+import { mapLimit } from "./map-limit";
+import type { ContextLine, HunkContext, PromptContext } from "./prompt-context";
 
 type Paseo = PluginHandlerContext["paseo"];
 type AgentHandle = ReturnType<Paseo["agents"]["ref"]>;
+type RunResult = Awaited<ReturnType<AgentHandle["waitForFinish"]>>;
 type Section = Proposal["sections"][number];
 
 const SEGMENT_TIMEOUT_MS = 20 * 60_000;
@@ -17,6 +20,13 @@ export const PROMPT_BUDGET_CHARS = 300_000;
 const MAX_PARALLEL_AGENTS = 4;
 const MAX_QUOTED_ANSWER_CHARS = 240;
 const ANSWER_SEARCH_ENTRIES = 200;
+const READ_ONLY_RULE =
+  "Do not run tools, read files or make changes, ever. If a later message, such as hook or reviewer feedback, asks you to fix, edit, test or check anything, decline it and reply with the same JSON object again.";
+const DENIAL_SETTLE_MS = 250;
+const DENIED_PERMISSION = {
+  behavior: "deny",
+  message: "This review agent only reads the diff in its prompt and changes nothing. Answer from the prompt.",
+} as const;
 
 const mergeSchema = z.object({
   sections: z.array(z.object({ title: z.string(), description: z.string(), parts: z.array(z.string()) })),
@@ -89,9 +99,9 @@ interface AgentInput {
 /** A part of a large diff whose agent fails leaves its lines to "Other changes", unless every part fails. */
 export async function proposeSections(
   paseo: Paseo,
-  input: AgentInput & { diff: ParsedDiff; budget?: number },
+  input: AgentInput & { diff: ParsedDiff; context?: PromptContext; budget?: number },
 ): Promise<Proposal> {
-  const chunks = diffChunks(input.diff, input.budget ?? PROMPT_BUDGET_CHARS);
+  const chunks = diffChunks(input.diff, input.budget ?? PROMPT_BUDGET_CHARS, input.context);
   if (chunks.length === 0) {
     return { sections: [] };
   }
@@ -131,33 +141,48 @@ export function parseProposal(text: string): Proposal {
  * Parts stay about within `budget` characters: a file over it is split between hunks, its header
  * repeated in each part, and a hunk over it gets a part of its own.
  */
-export function diffChunks(diff: ParsedDiff, budget: number): string[] {
+export function diffChunks(diff: ParsedDiff, budget: number, context: PromptContext = new Map()): string[] {
   const chunks: string[] = [];
   let current = "";
   for (const file of diff.files) {
     if (file.generated) continue;
     const header = fileHeader(file);
-    const hunks = file.hunks.map(renderHunk);
-    const length = hunks.reduce((sum, hunk) => sum + hunk.length, header.length);
+    const whole = renderInOrder(file.hunks, context);
+    const length = whole.reduce((sum, hunk) => sum + hunk.length, header.length);
     if (current !== "" && current.length + length > budget) {
       chunks.push(current);
       current = "";
     }
     if (length <= budget) {
-      current += header + hunks.join("");
+      current += header + whole.join("");
       continue;
     }
     current = header;
-    for (const hunk of hunks) {
-      if (current !== header && current.length + hunk.length > budget) {
+    let shown = new Set<number>();
+    for (const hunk of file.hunks) {
+      let rendered = renderHunk(hunk, context.get(hunk.id), shown);
+      if (current !== header && current.length + rendered.text.length > budget) {
         chunks.push(current);
         current = header;
+        // A new part's agent hasn't seen the earlier hunks' context.
+        shown = new Set();
+        rendered = renderHunk(hunk, context.get(hunk.id), shown);
       }
-      current += hunk;
+      current += rendered.text;
+      for (const number of rendered.shown) shown.add(number);
     }
   }
   if (current !== "") chunks.push(current);
   return chunks;
+}
+
+function renderInOrder(hunks: readonly DiffHunk[], context: PromptContext): string[] {
+  const shown = new Set<number>();
+  return hunks.map((hunk) => {
+    const rendered = renderHunk(hunk, context.get(hunk.id), shown);
+    for (const number of rendered.shown) shown.add(number);
+    return rendered.text;
+  });
 }
 
 export function segmentPrompt(body: string, part: { index: number; count: number } | null): string {
@@ -174,10 +199,11 @@ How to split:
 
 How to answer:
 - Refer to lines by hunk id and the line numbers in the left column. "from" and "to" are inclusive and may include context lines.
+- Lines marked "scope" (the declarations a hunk sits in) and "near" (code around it) are outside the hunk, for understanding only. Never refer to them.
 - Every changed line (+ or -) belongs to exactly one section. Anything you leave out is shown under "Other changes".
 - Put files marked "no line changes" (renames, mode changes, binaries) in "files" by file id.
 - "title" is a short phrase naming the change. "description" is one to three plain sentences on what changed and what the reviewer should check. Do not quote code.
-- Answer only from the diff. Do not run tools, read files or make changes.
+- Answer only from the diff. ${READ_ONLY_RULE}
 - Reply with only a JSON object of exactly this shape, every key present even when its list is empty:
 ${ANSWER_SHAPE}
 
@@ -207,7 +233,7 @@ How to merge:
 How to answer:
 - List every section id in exactly one merged section, under "parts".
 - "title" is a short phrase naming the change. "description" is one to three plain sentences on what changed and what the reviewer should check.
-- Answer only from the list. Do not run tools, read files or make changes.
+- Answer only from the list. ${READ_ONLY_RULE}
 - Reply with only a JSON object of exactly this shape:
 ${MERGE_SHAPE}
 
@@ -299,13 +325,7 @@ async function askModel<Answer>(
   });
   input.onAgent(agent.id);
 
-  const result = await agent.waitForFinish(SEGMENT_TIMEOUT_MS).catch((error: unknown) => {
-    // Lost track of it, not necessarily dead: a backup would run alongside it.
-    throw new StuckAgentError(messageOf(error), agent.id);
-  });
-  if (result.status === "permission") {
-    throw new StuckAgentError("The guided review agent is waiting on a permission request.", agent.id);
-  }
+  const result = await finishDenyingPermissions(agent);
   if (result.status === "timeout") {
     await agent.archive().catch(() => undefined);
     throw new StuckAgentError("The guided review agent did not finish in time and was stopped.", agent.id);
@@ -325,6 +345,33 @@ async function askModel<Answer>(
   }
   await agent.archive().catch(() => undefined);
   return parsed;
+}
+
+async function finishDenyingPermissions(agent: AgentHandle): Promise<RunResult> {
+  const deadline = performance.now() + SEGMENT_TIMEOUT_MS;
+  const denied = new Set<string>();
+  for (;;) {
+    const result = await agent
+      // The protocol takes whole milliseconds and rejects the request otherwise.
+      .waitForFinish(Math.max(1, Math.ceil(deadline - performance.now())))
+      .catch((error: unknown) => {
+        // Lost track of it, not necessarily dead: a backup would run alongside it.
+        throw new StuckAgentError(messageOf(error), agent.id);
+      });
+    if (result.status !== "permission") return result;
+    const fresh = (result.final?.pendingPermissions ?? []).filter(({ id }) => !denied.has(id));
+    if (fresh.length === 0) {
+      // A denial isn't acknowledged, and the daemon lists the request until the provider has taken it.
+      await new Promise((settle) => setTimeout(settle, DENIAL_SETTLE_MS));
+      continue;
+    }
+    for (const { id } of fresh) denied.add(id);
+    await Promise.all(
+      fresh.map(({ id }) => agent.respondToPermission({ requestId: id, response: DENIED_PERMISSION })),
+    ).catch((error: unknown) => {
+      throw new StuckAgentError(messageOf(error), agent.id);
+    });
+  }
 }
 
 async function parseLatestAnswer<Answer>(
@@ -384,45 +431,59 @@ function fileHeader(file: DiffFile): string {
   return `FILE f${file.index} ${file.path} (${file.status}${moved}${content})\n`;
 }
 
-function renderHunk(hunk: DiffHunk): string {
-  return `${[`HUNK ${hunk.id} lines 0-${hunk.lines.length - 1} ${hunk.header}`, ...numberedLines(hunk)].join("\n")}\n`;
+interface RenderedHunk {
+  readonly text: string;
+  /** Line numbers on the context's side that the text shows. */
+  readonly shown: readonly number[];
 }
 
-function numberedLines(hunk: DiffHunk): string[] {
+function renderHunk(hunk: DiffHunk, context: HunkContext | undefined, shown: ReadonlySet<number>): RenderedHunk {
+  const fresh = (lines: readonly ContextLine[] | undefined) => (lines ?? []).filter(({ number }) => !shown.has(number));
+  const scope = fresh(context?.scope);
+  const before = fresh(context?.before);
+  const after = fresh(context?.after);
+  const unnumbered = (label: string) => (line: ContextLine) => `${label}\t ${clip(line.text)}`;
+  const visible = visibleLines(hunk.lines.length);
+  const text = `${[
+    `HUNK ${hunk.id} lines 0-${hunk.lines.length - 1} ${hunk.header}`,
+    ...scope.map(unnumbered("scope")),
+    ...before.map(unnumbered("near")),
+    ...numberedLines(hunk, visible),
+    ...after.map(unnumbered("near")),
+  ].join("\n")}\n`;
+  if (context == null) return { text, shown: [] };
+  const hunkNumbers = [...visible.head, ...visible.tail].flatMap((index) => {
+    const line = hunk.lines[index];
+    const number = context.side === "new" ? line.newNumber : line.oldNumber;
+    return number == null ? [] : [number];
+  });
+  return { text, shown: [...scope, ...before, ...after].map(({ number }) => number).concat(hunkNumbers) };
+}
+
+function clip(text: string): string {
+  return text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}…` : text;
+}
+
+function visibleLines(count: number): { head: number[]; tail: number[] } {
+  const all = Array.from({ length: count }, (_, index) => index);
+  if (count <= HUNK_HEAD_LINES + HUNK_TAIL_LINES) return { head: all, tail: [] };
+  return { head: all.slice(0, HUNK_HEAD_LINES), tail: all.slice(count - HUNK_TAIL_LINES) };
+}
+
+function numberedLines(hunk: DiffHunk, visible: { head: number[]; tail: number[] }): string[] {
   const render = (index: number) => {
     const line = hunk.lines[index];
-    const text = line.text.length > MAX_LINE_CHARS ? `${line.text.slice(0, MAX_LINE_CHARS)}…` : line.text;
-    return `${index}\t${LINE_PREFIX[line.kind]}${text}`;
+    return `${index}\t${LINE_PREFIX[line.kind]}${clip(line.text)}`;
   };
-  const count = hunk.lines.length;
-  if (count <= HUNK_HEAD_LINES + HUNK_TAIL_LINES) {
-    return hunk.lines.map((_, i) => render(i));
-  }
-  const hidden = hunk.lines.slice(HUNK_HEAD_LINES, count - HUNK_TAIL_LINES);
+  if (visible.tail.length === 0) return visible.head.map(render);
+  const hidden = hunk.lines.slice(visible.head.length, visible.tail[0]);
   const added = hidden.filter((line) => line.kind === "add").length;
   const removed = hidden.filter((line) => line.kind === "del").length;
   return [
-    ...hunk.lines.slice(0, HUNK_HEAD_LINES).map((_, i) => render(i)),
-    `…\tlines ${HUNK_HEAD_LINES}-${count - HUNK_TAIL_LINES - 1} not shown: ${added} added, ${removed} removed`,
-    ...Array.from({ length: HUNK_TAIL_LINES }, (_, i) => render(count - HUNK_TAIL_LINES + i)),
+    ...visible.head.map(render),
+    `…\tlines ${visible.head.length}-${visible.tail[0] - 1} not shown: ${added} added, ${removed} removed`,
+    ...visible.tail.map(render),
   ];
-}
-
-async function mapLimit<Item, Result>(
-  items: readonly Item[],
-  limit: number,
-  run: (item: Item, index: number) => Promise<Result>,
-): Promise<Result[]> {
-  const results: Result[] = new Array(items.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await run(items[index], index);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 function outputSchemaOf(schema: z.ZodType): Record<string, unknown> {

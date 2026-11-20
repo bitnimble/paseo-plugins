@@ -146,9 +146,18 @@ GPT-6-Sol that a ready provider offers, and otherwise the first ready provider's
 
 **Backup model** is **None** by default. When set, it takes over if the model's provider isn't ready, its
 agent can't start or fails, as when it's out of quota, or it answers with something unusable, and the
-diff then goes to the backup model's provider too. An agent waiting on a permission request, out of
-time, or that Paseo lost track of isn't retried on the backup. Once a model fails, the rest of that
-generation stays on the backup.
+diff then goes to the backup model's provider too. An agent out of time, or that Paseo lost track of,
+isn't retried on the backup. Once a model fails, the rest of that generation stays on the backup.
+
+The model sees the diff in its prompt and nothing else. **Surrounding lines** (5 by default) adds up to
+that many unchanged lines on each side of every hunk, beyond the diff's own context, stopping at the
+next hunk. **Enclosing declarations** (on by default) adds the signatures of the functions, classes,
+modules and other declarations each hunk sits in, but not plain blocks such as `if`, taken from the
+file's syntax tree. Languages review assist can't parse get none. A line the model has already seen
+isn't repeated, and neither kind can be picked as part of a section.
+
+Guided review agents only read their prompt, so review assist denies any permission request they
+make, such as an edit a Stop hook talked them into, and lets them carry on.
 
 **Updates**, on the same page, asks Paseo whether the source the plugin was installed from has a
 newer version, and links to the changes. Nothing is installed until you press **Update**, which runs

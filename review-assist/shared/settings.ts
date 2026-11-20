@@ -10,6 +10,9 @@ export const reviewSettings = defineSettings({
     model: z.string().default(""),
     /** `provider/model`; empty is none. */
     backupModel: z.string().default(""),
+    promptContextLines: z.number().int().min(0).default(5),
+    /** Show the model the signatures of the declarations each hunk sits in. */
+    promptScope: z.boolean().default(true),
     layout: z.enum(["unified", "split"]).default("unified"),
     wrapLines: z.boolean().default(false),
     hideWhitespace: z.boolean().default(false),
