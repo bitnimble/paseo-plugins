@@ -1,5 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { submitReview, workspaceAgents } from "./server/agents";
+import { Difftastic } from "./server/difftastic";
 import { listBranches, previewBlob, readDiff, repoRoot } from "./server/git";
 import { highlightSides, syntaxPalette } from "./server/highlight";
 import { peek } from "./server/lsp/peek";
@@ -21,6 +22,7 @@ import {
   blobRpc,
   branchesRpc,
   diffRpc,
+  difftasticStatusRpc,
   fileRpc,
   generateRpc,
   guideJobRpc,
@@ -39,6 +41,7 @@ import {
   stateChangeRpc,
   stateRpc,
   submitRpc,
+  syntaxDiffRpc,
   trustRpc,
   updateRpc,
   updateStatusRpc,
@@ -53,6 +56,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   });
   const states = new ReviewStates(cacheDirectory());
   const modes = new ReviewModes(cacheDirectory());
+  const difftastic = new Difftastic();
   const trees = new TreeFiles();
   const languageServers = new LanguageServers(trees);
   const trust = new ProjectTrust(cacheDirectory());
@@ -82,6 +86,10 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     }, failed),
   );
   server.handle(branchesRpc, ({ directory }) => listBranches(directory));
+  server.handle(difftasticStatusRpc, ({ recheck }) => difftastic.status(recheck));
+  handlePacked(server, syntaxDiffRpc, ({ path, original, modified }) =>
+    difftastic.diff(path, original, modified).then((diff) => ({ status: "ready" as const, diff }), failed),
+  );
   server.handle(modeRpc, async ({ directory }) => ({ mode: await modes.read(directory) }));
   server.handle(setModeRpc, async ({ directory, mode }) => ({ mode: await modes.choose(directory, mode) }));
   handlePacked(server, guideRpc, async (input) => {

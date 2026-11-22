@@ -21,8 +21,10 @@ import { ShowMoreChanges } from "./controls";
 import type { CodeEditor, Decoration, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
+import { syntaxRegions } from "./monaco/syntax-regions";
 import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE, MONOSPACE, STICKY } from "./palette";
+import { useSyntaxDiff } from "./use-code";
 import { asEditorContainer, asOverflowHost, keepMovedCodeCompare, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
 import { ContentTop, PinnedHeight, useViewport } from "./windowed-rows";
 
@@ -84,6 +86,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
   );
   const single: SideName | null =
     sides.original.lines.length === 0 ? "modified" : sides.modified.lines.length === 0 ? "original" : null;
+  const syntax = useSyntaxDiff(file.path, sides.original.text, sides.modified.text, view.difftastic && single == null);
   const [container, setContainer] = useState<object | null>(null);
   const [editors, setEditors] = useState<Editors | null>(null);
   const [settled, setSettled] = useState<Editors | null>(null);
@@ -110,7 +113,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
           const { view, theme, palette } = latest.current.props;
           reviewMonaco.applyTheme(monaco, theme, palette);
           const node = asEditorContainer(container);
-          const options = { ...editorOptions(view), overflowWidgetsDomNode: asOverflowHost(overflowHost) };
+          const options = { ...editorOptions(view, false), overflowWidgetsDomNode: asOverflowHost(overflowHost) };
           if (single == null) {
             const diff = reviewMonaco.createDiffEditor(monaco, node, options);
             created = { monaco, diff, original: diff.getOriginalEditor(), modified: diff.getModifiedEditor() };
@@ -164,7 +167,7 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
 
   useEffect(() => {
     // For one commit after `single` changes, `editors` is the pair the creation effect just disposed.
-    if (editors == null || disposed.current.has(editors)) return;
+    if (editors == null || disposed.current.has(editors) || syntax === undefined) return;
     const { monaco, diff } = editors;
     const { source, block } = latest.current.props;
     let original: MonacoModel | null = null;
@@ -179,6 +182,10 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
         original = reviewMonaco.originalModel(monaco, block.file.oldPath ?? block.file.path, sides.original.text);
       }
       if (diff != null && original != null && modified != null) {
+        if (syntax != null) {
+          const texts = (side: Side) => side.lines.map((line) => line.text);
+          reviewMonaco.showRegions(original, syntaxRegions(sides.changes, syntax, texts(sides.original), texts(sides.modified)));
+        }
         diffed = diff.onDidUpdateDiff(() => setSettled(editors));
         diff.setModel({ original, modified });
       } else {
@@ -215,17 +222,17 @@ export function MonacoFileDiff(props: MonacoFileDiffProps) {
       original?.dispose();
       if (modified != null) reviewMonaco.releaseModified(modified);
     };
-  }, [editors, sides, single]);
+  }, [editors, sides, single, syntax]);
 
   useEffect(() => {
     if (editors == null || disposed.current.has(editors)) return;
-    const options = editorOptions(view);
+    const options = editorOptions(view, syntax != null);
     if (editors.diff != null) editors.diff.updateOptions(options);
     else for (const editor of innerEditors(editors)) editor.updateOptions(options);
     // After the diff editor's own options, which set its sides' line numbers.
     editors.original?.updateOptions({ lineNumbers: realNumbers(sides.original, "old") });
     editors.modified?.updateOptions({ lineNumbers: realNumbers(sides.modified, "new") });
-  }, [editors, view, sides]);
+  }, [editors, view, sides, syntax]);
 
   useEffect(() => {
     if (editors != null) reviewMonaco.applyTheme(editors.monaco, theme, palette);
@@ -503,8 +510,10 @@ function innerEditors(editors: Editors): CodeEditor[] {
   return [editors.original, editors.modified].filter((editor) => editor != null);
 }
 
-function editorOptions(view: ViewOptions): Readonly<Record<string, unknown>> {
+function editorOptions(view: ViewOptions, syntaxAware: boolean): Readonly<Record<string, unknown>> {
   return {
+    // A syntax-aware diff's inner changes include empty ones on each line pair, only for aligning them.
+    showEmptyDecorations: !syntaxAware,
     theme: THEME_NAME,
     readOnly: true,
     domReadOnly: true,

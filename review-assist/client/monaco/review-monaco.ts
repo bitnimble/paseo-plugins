@@ -5,8 +5,12 @@ import type { LspMethod, MonacoAsset } from "../../shared/protocol";
 import { createDetachedNode, injectMonaco } from "../web";
 import type {
   DiffEditor,
+  DiffProvider,
+  DocumentDiff,
   EditorContainer,
   IDisposable,
+  LineRange,
+  LineRangeMapping,
   Monaco,
   MonacoHover,
   MonacoLocation,
@@ -14,8 +18,10 @@ import type {
   MonacoPosition,
   MonacoRange,
   MonacoUri,
+  RangeMapping,
 } from "./api";
 import { toLspPosition, toMonacoRange } from "./convert";
+import type { SyntaxRegion } from "./syntax-regions";
 import { THEME_NAME, type SyntaxPalette, monacoTheme } from "./theme";
 
 export interface CodeSource {
@@ -55,6 +61,7 @@ interface SharedModel {
 const MAX_REFERENCE_MODELS = 40;
 const MAX_EAGER_TOKENIZED_LINES = 1000;
 const ORIGINAL_SCHEME = "review-original";
+const WARM_UP_TIMEOUT_MS = 10_000;
 
 class ReviewMonaco {
   private loading: Promise<Monaco> | null = null;
@@ -69,6 +76,7 @@ class ReviewMonaco {
   /** Models holding a tree's file line for line, by tree and path, for peeks into it. */
   private readonly treeModels = new Map<string, string>();
   private readonly targets = new Map<string, MonacoModel>();
+  private readonly regions = new WeakMap<MonacoModel, readonly SyntaxRegion[]>();
   private readonly registrations: IDisposable[] = [];
   private readonly featureRoots = new Map<string, { projectId: string; holders: number }>();
   private themeKey = "";
@@ -87,8 +95,11 @@ class ReviewMonaco {
     this.loading ??= this.bridged
       .then((bridge) => injectMonaco((asset) => bridge.asset(asset)))
       .then(
-        (monaco) => {
+        async (monaco) => {
           this.install(monaco);
+          await this.replaceDiffs(monaco).catch((error: unknown) => {
+            console.warn("[review-assist] Monaco keeps its own diffs: syntax-aware diffs could not be installed", error);
+          });
           this.ready = true;
           return monaco;
         },
@@ -183,6 +194,11 @@ class ReviewMonaco {
     return createModel(monaco, text, uri);
   }
 
+  /** Diff editors showing `original` show these regions instead of Monaco's own diff. Set before `setModel`. */
+  showRegions(original: MonacoModel, regions: readonly SyntaxRegion[]): void {
+    this.regions.set(original, regions);
+  }
+
   dispose(): void {
     for (const registration of this.registrations.splice(0)) registration.dispose();
     this.loading = null;
@@ -201,6 +217,44 @@ class ReviewMonaco {
         provideHover: (model, position) => this.hover(model, position),
       }),
     );
+  }
+
+  /** Monaco's API takes no diff, so a throwaway diff hands over the provider class to wrap and the classes a diff is built from. */
+  private async replaceDiffs(monaco: Monaco): Promise<void> {
+    const diff = this.createDiffEditor(monaco, createDetachedNode(), {});
+    const original = this.originalModel(monaco, "warm-up", "a");
+    const modified = this.originalModel(monaco, "warm-up", "b");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const updated = new Promise<void>((resolve, reject) => {
+        const listener = diff.onDidUpdateDiff(() => {
+          listener.dispose();
+          resolve();
+        });
+        timer = setTimeout(() => reject(new Error("Monaco never diffed the warm-up models")), WARM_UP_TIMEOUT_MS);
+      });
+      diff.setModel({ original, modified });
+      await updated;
+      const mapping = diff.getDiffComputationResult()?.changes2[0];
+      const inner = mapping?.innerChanges?.[0];
+      const provider = diff._diffModel.get()?._diffProvider.get().diffProvider;
+      if (mapping == null || inner == null || provider == null) throw new Error("Monaco's diff internals changed shape");
+      const classes = { LineRange: mapping.original.constructor, LineRangeMapping: mapping.constructor, RangeMapping: inner.constructor };
+      const prototype: DiffProvider = Object.getPrototypeOf(provider);
+      const computeDiff = prototype.computeDiff;
+      const regions = this.regions;
+      prototype.computeDiff = async function (this: DiffProvider, originalModel, modifiedModel, options, token) {
+        const result = await computeDiff.call(this, originalModel, modifiedModel, options, token);
+        const shown = regions.get(originalModel);
+        return shown == null ? result : withRegions(monaco, classes, result, shown);
+      };
+    } finally {
+      clearTimeout(timer);
+      diff.setModel(null);
+      diff.dispose();
+      original.dispose();
+      modified.dispose();
+    }
   }
 
   private async definition(monaco: Monaco, model: MonacoModel, position: MonacoPosition): Promise<MonacoLocation[] | null> {
@@ -316,6 +370,32 @@ function createModel(monaco: Monaco, text: string, uri: MonacoUri): MonacoModel 
   // Else an editor paints its lines uncoloured, and colours them only frames later.
   model.tokenization.forceTokenization(Math.min(model.getLineCount(), MAX_EAGER_TOKENIZED_LINES));
   return model;
+}
+
+interface DiffClasses {
+  readonly LineRange: LineRange["constructor"];
+  readonly LineRangeMapping: LineRangeMapping["constructor"];
+  readonly RangeMapping: RangeMapping["constructor"];
+}
+
+/** Monaco's diff with its changes swapped for `regions`, keeping the moves that sit inside them. */
+function withRegions(monaco: Monaco, classes: DiffClasses, diff: DocumentDiff, regions: readonly SyntaxRegion[]): DocumentDiff {
+  const range = ({ startLineNumber, startColumn, endLineNumber, endColumn }: MonacoRange) =>
+    new monaco.Range(startLineNumber, startColumn, endLineNumber, endColumn);
+  const changes = regions.map(
+    ({ original, modified, inner }) =>
+      new classes.LineRangeMapping(
+        new classes.LineRange(original[0], original[1]),
+        new classes.LineRange(modified[0], modified[1]),
+        inner.map((change) => new classes.RangeMapping(range(change.original), range(change.modified))),
+      ),
+  );
+  const changed = (lines: LineRange, side: "original" | "modified") =>
+    regions.some((region) => lines.startLineNumber >= region[side][0] && lines.endLineNumberExclusive <= region[side][1]);
+  const moves = diff.moves.filter(
+    ({ lineRangeMapping }) => changed(lineRangeMapping.original, "original") && changed(lineRangeMapping.modified, "modified"),
+  );
+  return { changes, moves, identical: changes.length === 0, quitEarly: false };
 }
 
 /** `range`, given in the tree's file, in the owner's model; null when the model lacks either end. */

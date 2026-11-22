@@ -10,6 +10,8 @@ export const reviewSettings = defineSettings({
     model: z.string().default(""),
     /** `provider/model`; empty is none. */
     backupModel: z.string().default(""),
+    /** Takes effect only while `difft` is available, so a host that installs it later gets it on. */
+    difftastic: z.boolean().default(true),
     sectionLines: z.number().int().positive().default(500),
     promptContextLines: z.number().int().min(0).default(5),
     /** Show the model the signatures of the declarations each hunk sits in. */
@@ -30,5 +32,5 @@ export type SectionsLayout = ReviewSettings["sectionsWide"];
 /** As shown: `layout` and `sections` resolved for the panel's width. */
 export type ViewOptions = Pick<
   ReviewSettings,
-  "layout" | "wrapLines" | "hideWhitespace" | "fileList" | "paneWidth" | "showPane"
+  "layout" | "wrapLines" | "hideWhitespace" | "difftastic" | "fileList" | "paneWidth" | "showPane"
 > & { readonly sections: SectionsLayout };

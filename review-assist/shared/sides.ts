@@ -16,9 +16,16 @@ export interface Side {
   readonly lines: readonly SideLine[];
 }
 
+/** A run of changed lines, as `[start, end)` line indexes into each side. */
+export interface ChangeRun {
+  readonly original: readonly [number, number];
+  readonly modified: readonly [number, number];
+}
+
 export interface BlockSides {
   readonly original: Side;
   readonly modified: Side;
+  readonly changes: readonly ChangeRun[];
   /** Ends before the change past the limit, leaving out the rest of the file. */
   readonly cut: boolean;
 }
@@ -53,7 +60,28 @@ export function blockSides(
   const { lines, cut } = wholeFileLines(block, newText, ignoreWhitespace, changeLimit);
   const sideOf = (dropped: DiffLine["kind"]) =>
     side(lines.flatMap((line) => (line.kind === dropped ? [] : [{ ...line, eol: line.noNewlineMarker == null }])));
-  return { original: sideOf("add"), modified: sideOf("del"), cut };
+  return { original: sideOf("add"), modified: sideOf("del"), changes: changeRuns(lines), cut };
+}
+
+function changeRuns(lines: readonly DiffLine[]): ChangeRun[] {
+  const runs: ChangeRun[] = [];
+  let original = 0;
+  let modified = 0;
+  for (let i = 0; i < lines.length; ) {
+    if (!isChange(lines[i])) {
+      original++;
+      modified++;
+      i++;
+      continue;
+    }
+    const start = [original, modified] as const;
+    for (; i < lines.length && isChange(lines[i]); i++) {
+      if (lines[i].kind === "del") original++;
+      else modified++;
+    }
+    runs.push({ original: [start[0], original], modified: [start[1], modified] });
+  }
+  return runs;
 }
 
 /** The whole file as the block shows it: its own changes among every other line, unchanged. */

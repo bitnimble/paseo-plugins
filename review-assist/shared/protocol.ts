@@ -67,6 +67,40 @@ export const diffRpc = definePackedRpc({
   ]),
 });
 
+const difftasticStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("available"), version: z.string() }),
+  z.object({ status: z.literal("missing"), reason: z.string() }),
+]);
+export type DifftasticStatus = z.infer<typeof difftasticStatusSchema>;
+
+/** `recheck` probes for `difft` again instead of answering from the last probe. */
+export const difftasticStatusRpc = defineRpc({
+  name: "review.difftastic.status",
+  input: z.object({ recheck: z.boolean() }),
+  output: difftasticStatusSchema,
+});
+
+const syntaxChangeSchema = z.object({ start: z.number().int(), end: z.number().int(), highlight: z.string() });
+export type SyntaxChange = z.infer<typeof syntaxChangeSchema>;
+
+const syntaxDiffSchema = z.object({
+  /** `Text` when difftastic fell back to a line diff. */
+  language: z.string(),
+  /** 0-based line numbers of each side shown level with each other; null opposite an added or removed line. */
+  aligned: z.array(z.tuple([z.number().int().nullable(), z.number().int().nullable()])),
+  /** Changed spans in character columns, by 0-based line. */
+  oldChanges: z.record(z.string(), z.array(syntaxChangeSchema)),
+  newChanges: z.record(z.string(), z.array(syntaxChangeSchema)),
+});
+export type SyntaxDiff = z.infer<typeof syntaxDiffSchema>;
+
+/** `path` picks the language; the texts are diffed as given. */
+export const syntaxDiffRpc = definePackedRpc({
+  name: "review.difftastic.diff",
+  input: z.object({ path: z.string(), original: z.string(), modified: z.string() }),
+  output: z.discriminatedUnion("status", [z.object({ status: z.literal("ready"), diff: syntaxDiffSchema }), failedSchema]),
+});
+
 /** Null until a mode is picked for the workspace on some device. */
 export const modeRpc = defineRpc({
   name: "review.mode",

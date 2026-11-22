@@ -21,7 +21,9 @@ Open a workspace and choose **Open guided review** from the Command Center, or o
 the Explorer. Pick which diff to review:
 
 - **vs main** compares the working tree, including uncommitted and untracked files, with the
-  merge-base of the default branch.
+  merge-base of the default branch. When both `main` and `origin/main` exist, it uses whichever
+  forked from your branch most recently, so a stale copy of either doesn't pull the other's commits
+  into the diff; the toolbar names the one in use.
 - **Uncommitted** compares the working tree with `HEAD`.
 - Any other local or remote branch, picked from a filterable list, compares the working tree with
   that branch's merge-base.
@@ -52,13 +54,21 @@ Paseo's sidebar, the layout is always unified. The toolbar's button at the left 
 over the diff, with the section you are reading highlighted; it closes when you jump to a section or
 file, or press beside it.
 
+With **Syntax-aware diffs** on in the plugin's settings, and
+[difftastic](https://difftastic.wilfred.me.uk/)'s `difft` on the daemon's `PATH`, the tokens that
+changed within an edited line are difftastic's, and in the split layout each edited line sits beside
+the line difftastic matched it to. Without `difft` the setting is off, with a **Check again** button
+for after installing it.
+
 In the web and desktop apps on a computer each file is a Monaco diff editor with collapsible
-unchanged lines. Once you trust the project, Ctrl/Cmd+click a symbol to peek at its definition,
+unchanged lines. With syntax-aware diffs its changed lines are git's, as the sections are; without
+them Monaco diffs the file itself. Once you trust the project, Ctrl/Cmd+click a symbol to peek at its definition,
 and hover for its type, through a language server the daemon runs for the repository:
 `typescript-language-server`, `pyright-langserver`, `gopls`, `rust-analyzer` or `clangd`, from the
 repository's `node_modules/.bin` or the daemon's `PATH`. Removed lines have no language server
 behind them. On phones and tablets, and while Monaco loads or when it cannot, the panel shows the diff with
-Paseo's own syntax highlighting instead, marking the words that changed within an edited line; the
+Paseo's own syntax highlighting instead, marking the words that changed within an edited line, by
+difftastic once the file's text has loaded with syntax-aware diffs on; the
 row between hunks shows the lines hidden there, 20 at a time with its arrows or all at a tap. Once
 you trust the project, long-press a word on any line but a removed one to peek at its definition in
 a frame opened under the line, as Monaco's peek is, with its type at the top; the arrows in the

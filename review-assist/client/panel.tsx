@@ -19,7 +19,7 @@ import { LanguageFeatures } from "./peek";
 import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
 import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
-import { useCodeIntelligence } from "./use-code";
+import { useCodeIntelligence, useDifftasticStatus } from "./use-code";
 import { useSharedMode } from "./use-mode";
 import { commentStore, useReview } from "./use-review";
 
@@ -413,10 +413,19 @@ function useSavedOptions(narrow: boolean): {
   const [pending, setPending] = useState<Partial<SavedOptions>>({});
   const savedAgainst = useRef<string | null>(null);
   const stored = settings.status === "ready" ? settings.values : DEFAULT_SETTINGS;
-  const { model, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane, sectionsNarrow, sectionsWide } = {
-    ...stored,
-    ...pending,
-  };
+  const {
+    model,
+    layout,
+    wrapLines,
+    hideWhitespace,
+    difftastic,
+    fileList,
+    paneWidth,
+    showPane,
+    sectionsNarrow,
+    sectionsWide,
+  } = { ...stored, ...pending };
+  const difftasticMissing = useDifftasticStatus().data?.status === "missing";
   const sections = narrow ? sectionsNarrow : sectionsWide;
   // Every file row is memoised on it, so a new object per render re-renders them all.
   const view = useMemo(
@@ -424,12 +433,13 @@ function useSavedOptions(narrow: boolean): {
       layout: narrow ? "unified" : layout,
       wrapLines,
       hideWhitespace,
+      difftastic: difftastic && !difftasticMissing,
       fileList,
       paneWidth,
       showPane,
       sections,
     }),
-    [narrow, layout, wrapLines, hideWhitespace, fileList, paneWidth, showPane, sections],
+    [narrow, layout, wrapLines, hideWhitespace, difftastic, difftasticMissing, fileList, paneWidth, showPane, sections],
   );
 
   useEffect(() => {

@@ -116,11 +116,47 @@ export interface CodeEditor {
   dispose(): void;
 }
 
+/** Lines from 1, the end exclusive. */
+export interface LineRange {
+  readonly startLineNumber: number;
+  readonly endLineNumberExclusive: number;
+  readonly constructor: new (startLineNumber: number, endLineNumberExclusive: number) => LineRange;
+}
+
+export interface RangeMapping {
+  readonly constructor: new (originalRange: MonacoRange, modifiedRange: MonacoRange) => RangeMapping;
+}
+
+export interface LineRangeMapping {
+  readonly original: LineRange;
+  readonly modified: LineRange;
+  readonly innerChanges: readonly RangeMapping[] | undefined;
+  readonly constructor: new (
+    original: LineRange,
+    modified: LineRange,
+    innerChanges: readonly RangeMapping[] | undefined,
+  ) => LineRangeMapping;
+}
+
+export interface DocumentDiff {
+  readonly changes: readonly LineRangeMapping[];
+  readonly moves: readonly { readonly lineRangeMapping: { readonly original: LineRange; readonly modified: LineRange } }[];
+  readonly identical: boolean;
+  readonly quitEarly: boolean;
+}
+
+export interface DiffProvider {
+  computeDiff(original: MonacoModel, modified: MonacoModel, options: unknown, token: unknown): Promise<DocumentDiff>;
+}
+
 export interface DiffEditor {
   setModel(model: { original: MonacoModel; modified: MonacoModel } | null): void;
   getOriginalEditor(): CodeEditor;
   getModifiedEditor(): CodeEditor;
   getLineChanges(): readonly LineChange[] | null;
+  getDiffComputationResult(): { readonly changes2: readonly LineRangeMapping[] } | null;
+  /** Internal to Monaco: absent from its typings. */
+  readonly _diffModel: { get(): { readonly _diffProvider: { get(): { readonly diffProvider: DiffProvider } } } | undefined };
   onDidUpdateDiff(listener: () => void): IDisposable;
   updateOptions(options: Readonly<Record<string, unknown>>): void;
   dispose(): void;
@@ -153,4 +189,5 @@ export interface Monaco {
     parse(value: string): MonacoUri;
     from(components: { scheme: string; path: string; query?: string }): MonacoUri;
   };
+  Range: new (startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number) => MonacoRange;
 }

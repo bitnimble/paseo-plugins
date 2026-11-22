@@ -12,10 +12,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { messageOf } from "../shared/errors";
-import { type UpdateStatus, updateRpc, updateStatusRpc } from "../shared/protocol";
+import { type UpdateStatus, difftasticStatusRpc, updateRpc, updateStatusRpc } from "../shared/protocol";
 import { reviewSettings } from "../shared/settings";
 import { MENU_HOST_Z_INDEX, MenuBackdrop } from "./menu";
 import { ModelMenu } from "./model-menu";
+import { DIFFTASTIC_KEY, SYNTAX_DIFF_KEY, useDifftasticStatus } from "./use-code";
 
 const UPDATE_KEY = ["review-update"];
 const UPDATING_POLL_MS = 3000;
@@ -53,8 +54,55 @@ export function ReviewSettingsScreen(props: PluginSurfaceProps) {
     <View>
       {menu == null ? null : <MenuBackdrop fillsWindow onPress={() => setMenu(null)} />}
       <ModelSettings {...props} menu={menu} onMenu={setMenu} />
+      <DiffSettings />
       <UpdateSettings />
     </View>
+  );
+}
+
+function DiffSettings() {
+  const settings = useSettings(reviewSettings);
+  const readStatus = useRpc(difftasticStatusRpc);
+  const queryClient = useQueryClient();
+  const check = useDifftasticStatus();
+  const recheck = useMutation({
+    mutationFn: () => readStatus({ recheck: true }),
+    onSuccess: (status) => {
+      queryClient.setQueryData(DIFFTASTIC_KEY, status);
+      void queryClient.invalidateQueries({ queryKey: SYNTAX_DIFF_KEY });
+    },
+  });
+  if (settings.status !== "ready") return null;
+  const status = check.data;
+  const available = status?.status === "available";
+  const checking = check.isFetching || recheck.isPending;
+  const hint =
+    status == null
+      ? "Checking for difftastic…"
+      : status.status === "available"
+        ? `Pairs and highlights changed lines by syntax with difftastic ${status.version}. Sections still follow git's hunks.`
+        : `${status.reason} Install difftastic there, then check again.`;
+  return (
+    <SettingsSection title="Diff display">
+      <SettingsCard>
+        <SettingsSwitch
+          label="Syntax-aware diffs"
+          hint={hint}
+          value={available && settings.values.difftastic}
+          disabled={!available || settings.saving}
+          error={settings.saveError ?? (check.error == null ? null : messageOf(check.error))}
+          onValueChange={(difftastic) => void settings.save({ ...settings.values, difftastic }, settings.revision)}
+        />
+        <SettingsAction
+          label="difftastic"
+          hint={available ? `Found difft ${status.version}` : "Not found"}
+          actionLabel={checking ? "Checking…" : "Check again"}
+          disabled={checking}
+          error={recheck.error == null ? null : messageOf(recheck.error)}
+          onPress={() => recheck.mutate()}
+        />
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 

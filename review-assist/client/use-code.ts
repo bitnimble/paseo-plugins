@@ -1,10 +1,22 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type { DiffFile } from "../shared/diff";
 import { messageOf } from "../shared/errors";
-import { fileRpc, highlightRpc, leaseRpc, lspRpc, monacoRpc, paletteRpc } from "../shared/protocol";
+import { hashText } from "../shared/hash";
+import {
+  type DifftasticStatus,
+  type SyntaxDiff,
+  difftasticStatusRpc,
+  fileRpc,
+  highlightRpc,
+  leaseRpc,
+  lspRpc,
+  monacoRpc,
+  paletteRpc,
+  syntaxDiffRpc,
+} from "../shared/protocol";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { usePackedRpc } from "./packed";
@@ -49,6 +61,30 @@ export function useSyntax(source: CodeSource, file: DiffFile, enabled: boolean):
     staleTime: Infinity,
   });
   return query.data?.status === "ready" ? query.data : null;
+}
+
+export const DIFFTASTIC_KEY = ["review-difftastic"];
+export const SYNTAX_DIFF_KEY = ["review-syntax-diff"];
+
+export function useDifftasticStatus(): UseQueryResult<DifftasticStatus> {
+  const read = useRpc(difftasticStatusRpc);
+  return useQuery({ queryKey: DIFFTASTIC_KEY, queryFn: () => read({ recheck: false }), staleTime: Infinity });
+}
+
+/** Undefined until difftastic answers; null when it is off or can't diff the sides. */
+export function useSyntaxDiff(path: string, original: string, modified: string, enabled: boolean): SyntaxDiff | null | undefined {
+  const diff = usePackedRpc(syntaxDiffRpc);
+  const key = useMemo(() => [hashText(original), hashText(modified)], [original, modified]);
+  const query = useQuery({
+    queryKey: [...SYNTAX_DIFF_KEY, path, ...key],
+    queryFn: () => diff({ path, original, modified }),
+    enabled,
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (!enabled) return null;
+  if (query.data?.status === "ready") return query.data.diff;
+  return query.isPending ? undefined : null;
 }
 
 export function usePalette(theme: PluginTheme): SyntaxPalette | null {

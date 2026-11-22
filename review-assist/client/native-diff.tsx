@@ -4,10 +4,18 @@ import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from
 import { Animated, Platform, Pressable, type StyleProp, Text, type TextStyle, View } from "react-native";
 import type { CommentTarget } from "../shared/comments";
 import type { DiffFile, DiffLine } from "../shared/diff";
-import { type Span, type SplitRow, splitRows, wordChanges } from "../shared/display";
+import { type Span, type SplitRow, splitRows, syntaxLineChanges, wordChanges } from "../shared/display";
 import type { FileBlock } from "../shared/guide";
 import type { ViewOptions } from "../shared/settings";
-import { CONTEXT_LINES, type ShownHunk, blockHunks, hunksOf, takeChanges, wholeFileLines } from "../shared/sides";
+import {
+  CONTEXT_LINES,
+  type ShownHunk,
+  blockHunks,
+  blockSides,
+  hunksOf,
+  takeChanges,
+  wholeFileLines,
+} from "../shared/sides";
 import {
   type Card,
   CommentSlot,
@@ -28,13 +36,14 @@ import type { SyntaxPalette } from "./monaco/theme";
 import { CODE_SURFACE } from "./palette";
 import { LanguageFeatures, type PeekTarget, PeekView } from "./peek";
 import { type CodePiece, type FileSyntax, codePieces, expandTabs, lineTokens, wordAt } from "./syntax";
-import { useSyntax } from "./use-code";
+import { useSyntax, useSyntaxDiff } from "./use-code";
 import { type WindowedRow, WindowedRows } from "./windowed-rows";
 
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const EXPAND_STEP = 20;
 const MAX_REVEAL_ALL = 400;
 const NO_RANGES: readonly Range[] = [];
+const NO_PARTNERS: ReadonlyMap<DiffLine, DiffLine> = new Map();
 
 type Range = readonly [number, number];
 
@@ -82,7 +91,18 @@ export function NativeBody({
     const taken = takeChanges(whole, changeLimit);
     return { hunks: hunksOf(taken.lines, CONTEXT_LINES, ranges, taken.cut), cut: taken.cut };
   }, [block, view.hideWhitespace, whole, ranges, changeLimit]);
-  const marks = useMemo(() => shown.hunks.map((hunk) => wordChanges(hunk.lines)), [shown]);
+  const sides = useMemo(
+    () => (text == null ? null : blockSides(block, text, view.hideWhitespace)),
+    [block, text, view.hideWhitespace],
+  );
+  const twoSided = sides != null && sides.original.lines.length > 0 && sides.modified.lines.length > 0;
+  const syntaxDiff = useSyntaxDiff(block.file.path, sides?.original.text ?? "", sides?.modified.text ?? "", view.difftastic && twoSided);
+  const lineChanges = useMemo(
+    () => (syntaxDiff == null || whole == null ? null : syntaxLineChanges(whole, syntaxDiff)),
+    [whole, syntaxDiff],
+  );
+  const marks = useMemo(() => shown.hunks.map((hunk) => lineChanges?.marks ?? wordChanges(hunk.lines)), [shown, lineChanges]);
+  const partners = lineChanges?.partners ?? NO_PARTNERS;
   const syntax = useSyntax(source, block.file, block.file.hunks.length > 0 && !block.file.binary && !block.file.lfs);
   const cards = fileCards(comments);
   const unplaced = cards.filter((card) => shown.hunks.every((hunk) => cardLine(card, hunk.lines) < 0));
@@ -134,7 +154,7 @@ export function NativeBody({
             ),
         };
   const gutter = gutterWidth(block.file);
-  const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot, peek };
+  const rows = { file: block.file, gutter, view, styles, syntax, palette, cards, comments, slot, peek, partners };
   const gap = (from: number, to: number): WindowedRow[] =>
     to <= from
       ? []
@@ -263,12 +283,13 @@ interface RowProps {
   readonly comments: FileComments;
   readonly slot: (card: Card) => ReactNode;
   readonly peek: Peeking | null;
+  readonly partners: ReadonlyMap<DiffLine, DiffLine>;
 }
 
 function hunkRows(
   hunk: ShownHunk,
   marks: ReadonlyMap<DiffLine, readonly Span[]>,
-  { file, gutter, view, styles, syntax, palette, cards, comments, slot, peek }: RowProps,
+  { file, gutter, view, styles, syntax, palette, cards, comments, slot, peek, partners }: RowProps,
 ): WindowedRow[] {
   const { lines } = hunk;
   const scope = draftScope(file, comments.draft, [lines]);
@@ -298,7 +319,7 @@ function hunkRows(
   return view.layout === "split" ? splitBody() : unifiedBody();
 
   function splitBody(): WindowedRow[] {
-    const rows = splitRows(lines);
+    const rows = splitRows(lines, partners);
     const oldEdges = scopeEdges(rows, (row) => covers(row.left, "old"));
     const newEdges = scopeEdges(rows, (row) => covers(row.right, "new"));
     return rows.map((row, i) => {

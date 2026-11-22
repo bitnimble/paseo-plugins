@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { LINE_PREFIX, parseDiff } from "../shared/diff";
-import { hideWhitespaceChanges, splitRows, wordChanges } from "../shared/display";
+import { hideWhitespaceChanges, splitRows, syntaxLineChanges, wordChanges } from "../shared/display";
 
 function hunkLines(body: string[]) {
   const oldCount = body.filter((line) => !line.startsWith("+")).length;
@@ -57,6 +57,35 @@ test("split rows pair removals with additions and mirror context", () => {
       ["c", null],
       ["d", "d"],
       [null, "e"],
+    ],
+  );
+});
+
+test("difftastic's pairs and tokens land on the changed lines, its pairs sharing split rows", () => {
+  // Old: a, drop(), keep(1), z. New: a, add(), extra, keep(2), z.
+  const lines = hunkLines([" a", "-drop()", "-keep(1)", "+add()", "+extra", "+keep(2)", " z"]);
+  const { marks, partners } = syntaxLineChanges(lines, {
+    language: "TypeScript",
+    aligned: [[0, 0], [1, null], [null, 1], [null, 2], [2, 3], [3, 4]],
+    oldChanges: { 1: [{ start: 0, end: 6, highlight: "normal" }], 2: [{ start: 5, end: 6, highlight: "number" }] },
+    newChanges: { 3: [{ start: 5, end: 6, highlight: "number" }], 4: [{ start: 0, end: 1, highlight: "normal" }] },
+  });
+  assert.deepEqual(
+    [...marks].map(([line, spans]) => [line.text, spans]),
+    [
+      ["drop()", [{ start: 0, end: 6 }]],
+      ["keep(1)", [{ start: 5, end: 6 }]],
+      ["keep(2)", [{ start: 5, end: 6 }]],
+    ],
+  );
+  assert.deepEqual(
+    splitRows(lines, partners).map(({ left, right }) => [left?.text ?? null, right?.text ?? null]),
+    [
+      ["a", "a"],
+      ["drop()", "add()"],
+      [null, "extra"],
+      ["keep(1)", "keep(2)"],
+      ["z", "z"],
     ],
   );
 });

@@ -36,6 +36,7 @@ jest.mock("../shared/protocol", () => ({
   peekRpc: { name: "review.peek" },
   highlightRpc: { name: "review.highlight" },
   fileRpc: { name: "review.file" },
+  syntaxDiffRpc: { name: "review.difftastic.diff" },
   HIGHLIGHT_STYLES: [],
   isDeflated: () => false,
 }));
@@ -62,6 +63,7 @@ const view: ViewOptions = {
   layout: "unified",
   wrapLines: true,
   hideWhitespace: false,
+  difftastic: false,
   fileList: "flat",
   paneWidth: 300,
   showPane: true,

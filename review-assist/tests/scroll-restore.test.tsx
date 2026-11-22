@@ -58,6 +58,7 @@ const view: ViewOptions = {
   layout: "unified",
   wrapLines: true,
   hideWhitespace: false,
+  difftastic: false,
   fileList: "flat",
   paneWidth: 300,
   showPane: false,

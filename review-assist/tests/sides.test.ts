@@ -131,11 +131,27 @@ test("a section's sides hold earlier sections' changes and leave out later ones"
   assert.equal(one.original.text, "a\nb\nc\nd\n");
   assert.equal(one.modified.text, "a\nB\nc\nd\n");
   assert.deepEqual(numbers(one.modified.lines), [[1, 1], [null, 2], [3, 3], [4, null]]);
+  assert.deepEqual(one.changes, [{ original: [1, 2], modified: [1, 2] }]);
 
   const two = blockSides(second, "a\nB\nc\nD\n", false);
   assert.equal(two.original.text, "a\nB\nc\nd\n");
   assert.equal(two.modified.text, "a\nB\nc\nD\n");
   assert.deepEqual(numbers(two.original.lines), [[1, 1], [null, 2], [3, 3], [4, null]]);
+  assert.deepEqual(two.changes, [{ original: [3, 4], modified: [3, 4] }]);
+});
+
+test("a section's change runs count lines on each side, an addition or removal alone empty on the other", () => {
+  const diff = parseDiff(
+    ["diff --git a/r.txt b/r.txt", "--- a/r.txt", "+++ b/r.txt", "@@ -1,5 +1,5 @@", "-a", " b", "+B", "+C", " c", "-d", "-e", "+E", ""].join(
+      "\n",
+    ),
+  );
+  const [block] = fullBlocks(diff);
+  assert.deepEqual(blockSides(block, "b\nB\nC\nc\nE\n", false).changes, [
+    { original: [0, 1], modified: [0, 0] },
+    { original: [2, 2], modified: [1, 3] },
+    { original: [3, 5], modified: [4, 5] },
+  ]);
 });
 
 test("a section's hunks show only its own changes, numbered as in the real files", () => {
