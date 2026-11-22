@@ -26,8 +26,10 @@ the Explorer. Pick which diff to review:
 - Any other local or remote branch, picked from a filterable list, compares the working tree with
   that branch's merge-base.
 
-Guides, viewed marks and comments are kept separately for each choice. Each Review tab reopens on
-the diff it was showing, Guided or Full diff, its section, and where it was scrolled to.
+Guides, viewed marks and comments are kept separately for each choice, on the daemon host, so every
+device sees the same ones. The choice itself is shared too: a Review tab on any device opens on the
+diff last picked for the workspace. Each tab also reopens Guided or Full diff, its section, and where
+it was scrolled to, unless the diff was switched elsewhere since.
 
 **View** switches between unified and split layouts, wraps long lines, hides lines that only
 changed in whitespace, as `git diff -w` would, and lists the side pane's files flat or as a tree.
@@ -149,6 +151,12 @@ agent can't start or fails, as when it's out of quota, or it answers with someth
 diff then goes to the backup model's provider too. An agent out of time, or that Paseo lost track of,
 isn't retried on the backup. Once a model fails, the rest of that generation stays on the backup.
 
+**Section size** (about 500 changed lines by default) tells the model how large a section should get,
+counting added and removed lines together, and the model is told roughly how many sections that
+makes for the diff. It's a guide, not a limit: the model merges small related changes toward it, and
+keeps simple mechanical updates in one section however large, such as a changed signature and every
+caller updated for it, a rename or import changes.
+
 The model sees the diff in its prompt and nothing else. **Surrounding lines** (5 by default) adds up to
 that many unchanged lines on each side of every hunk, beyond the diff's own context, stopping at the
 next hunk. **Enclosing declarations** (on by default) adds the signatures of the functions, classes,
@@ -164,5 +172,6 @@ newer version, and links to the changes. Nothing is installed until you press **
 Paseo's own plugin updater on the daemon host. The build runs in the background, and the plugin
 restarts on the new version once it's ready.
 
-Guided reviews, viewed marks, draft comments and project trust are stored on the daemon host under
+Guided reviews, viewed marks, draft comments, each workspace's diff choice and project trust are
+stored on the daemon host under
 `~/.cache/paseo-review-assist` (or `$XDG_CACHE_HOME`).

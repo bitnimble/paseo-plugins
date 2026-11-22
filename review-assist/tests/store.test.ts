@@ -123,10 +123,12 @@ test("the prompt carries the configured surrounding lines and enclosing declarat
   assert.match(prompt, /\n7\t {3}\}\nnear\t \}\n<\/diff>/);
 });
 
-test("context is on by default and gone with both settings off", async () => {
+test("defaults give context and a 500-line section guide, and both context settings off give none", async () => {
   const contextLines = (prompt: string) => prompt.split("\n").filter((line) => /^(?:scope|near)\t/.test(line)).length;
+  const defaults = await promptWith({});
 
-  assert.equal(contextLines(await promptWith({})), 4);
+  assert.equal(contextLines(defaults), 4);
+  assert.match(defaults, /Aim for roughly 500 changed lines .* These changes total about 2, so one section/);
   assert.equal(contextLines(await promptWith({ promptContextLines: 0, promptScope: false })), 0);
 });
 

@@ -67,6 +67,19 @@ export const diffRpc = definePackedRpc({
   ]),
 });
 
+/** Null until a mode is picked for the workspace on some device. */
+export const modeRpc = defineRpc({
+  name: "review.mode",
+  input: z.object({ directory: z.string() }),
+  output: z.object({ mode: diffModeSchema.nullable() }),
+});
+
+export const setModeRpc = defineRpc({
+  name: "review.mode.set",
+  input: z.object({ directory: z.string(), mode: diffModeSchema }),
+  output: z.object({ mode: diffModeSchema }),
+});
+
 /** `branches` holds local and remote-tracking branches, most recently committed first. */
 export const branchesRpc = defineRpc({
   name: "review.branches",

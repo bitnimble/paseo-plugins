@@ -37,7 +37,8 @@ index 3333333..4444444 100644
 +b
 `;
 
-const promptFor = (raw: string) => segmentPrompt(diffChunks(parseDiff(raw), PROMPT_BUDGET_CHARS)[0], null);
+const promptFor = (raw: string) =>
+  segmentPrompt(diffChunks(parseDiff(raw), PROMPT_BUDGET_CHARS)[0], null, { sectionLines: 500, changedLines: 3 });
 
 test("the prompt numbers lines per hunk and leaves out generated files", () => {
   const prompt = promptFor(RAW);
@@ -61,6 +62,14 @@ test("huge hunks are elided in the middle but keep their real line numbers", () 
   assert.match(prompt, /^…\tlines 300-949 not shown: 650 added, 0 removed$/m);
   assert.match(prompt, /^950\t\+line 950$/m);
   assert.match(prompt, /^999\t\+line 999$/m);
+});
+
+test("the size guide turns the diff's changed lines into an expected section count", () => {
+  const guideFor = (changedLines: number) => segmentPrompt("", null, { sectionLines: 500, changedLines });
+
+  assert.match(guideFor(4000), /These changes total about 4000, so about 8 sections, not many more\./);
+  assert.match(guideFor(4001), /so about 9 sections/);
+  assert.match(guideFor(120), /so one section/);
 });
 
 test("answers parse with or without surrounding prose and reject the wrong shape", () => {
@@ -143,14 +152,21 @@ test("a diff over budget runs one agent per part, then merges and orders their s
     workspaceId: "w",
     models: new ModelFallback(["fake/model"]),
     diff,
+    sectionLines: 250,
     budget: perFile * 2,
     onAgent: (id) => agents.push(id),
   });
 
   assert.equal(prompts.length, 3);
   assert.match(prompts[0], /part 1 of 2/);
+  assert.match(prompts[0], /Aim for roughly 250 changed lines \(\+ and - together\) per section\. These changes total about 4, so one section, not many more\./);
   assert.match(prompts[1], /part 2 of 2/);
-  assert.match(prompts[2], /^s0: h0\n {2}\n {2}files: a\.ts$/m);
+  assert.match(prompts[1], /These changes total about 2, so one section/);
+  assert.match(prompts[2], /^s0: h0 \(\+1\/-1\)\n {2}\n {2}files: a\.ts$/m);
+  assert.match(prompts[2], /Aim for roughly 250 changed lines .* These changes total about 6, so one section/);
+  for (const prompt of prompts) {
+    assert.match(prompt, /Exception to the size guide: simple mechanical updates .* go together in one section/);
+  }
   assert.deepEqual(agents, ["agent-1", "agent-2", "agent-3"]);
   assert.equal(archived, 3);
   assert.deepEqual(
@@ -193,6 +209,7 @@ test("a failed part leaves its lines unplaced, and only all parts failing fails 
       workspaceId: "w",
       models: new ModelFallback(["m"]),
       diff,
+      sectionLines: 500,
       budget: perFile,
       onAgent: () => {},
     });
@@ -227,6 +244,7 @@ test("a diff of only generated files asks no agent", async () => {
     workspaceId: "w",
     models: new ModelFallback(["m"]),
     diff: parseDiff(lockOnly),
+    sectionLines: 500,
     onAgent: () => {},
   });
   assert.deepEqual(proposal, { sections: [] });
@@ -386,7 +404,7 @@ function fallbackPaseo(finish: (model: string, prompt: string) => Finish | Finis
 }
 
 const proposeWithBackup = (paseo: PluginHandlerContext["paseo"], models = new ModelFallback(["main", "backup"])) =>
-  proposeSections(paseo, { workspaceId: "w", models, diff: parseDiff(THREE_FILES), onAgent: () => {} });
+  proposeSections(paseo, { workspaceId: "w", models, diff: parseDiff(THREE_FILES), sectionLines: 500, onAgent: () => {} });
 
 const titles = (proposal: { sections: readonly { title: string }[] }): string[] =>
   proposal.sections.map(({ title }) => title);
@@ -582,7 +600,14 @@ test("a dead first model is dropped: parts already running retry on the backup, 
   });
   const models = new ModelFallback(["main", "backup"]);
 
-  const proposal = await proposeSections(paseo, { workspaceId: "w", models, diff, budget: perFile, onAgent: () => {} });
+  const proposal = await proposeSections(paseo, {
+    workspaceId: "w",
+    models,
+    diff,
+    sectionLines: 500,
+    budget: perFile,
+    onAgent: () => {},
+  });
 
   // Four parts run at once, so all four reach the first model before any has failed.
   assert.deepEqual(created.slice(0, 4), ["main", "main", "main", "main"]);

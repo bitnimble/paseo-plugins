@@ -8,6 +8,7 @@ import { markdownDiff } from "./server/markdown";
 import { MermaidRenderer } from "./server/mermaid/renderer";
 import { monacoChunk } from "./server/monaco-assets";
 import { handlePacked } from "./server/packed";
+import { ReviewModes } from "./server/review-modes";
 import { ReviewStates } from "./server/review-state";
 import { cacheDirectory } from "./server/slots";
 import { GuideStore } from "./server/store";
@@ -29,9 +30,11 @@ import {
   lspRpc,
   markdownRpc,
   mermaidRpc,
+  modeRpc,
   monacoRpc,
   paletteRpc,
   peekRpc,
+  setModeRpc,
   setTrustRpc,
   stateChangeRpc,
   stateRpc,
@@ -49,6 +52,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     return state.status === "ready" ? state.values : {};
   });
   const states = new ReviewStates(cacheDirectory());
+  const modes = new ReviewModes(cacheDirectory());
   const trees = new TreeFiles();
   const languageServers = new LanguageServers(trees);
   const trust = new ProjectTrust(cacheDirectory());
@@ -78,6 +82,8 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     }, failed),
   );
   server.handle(branchesRpc, ({ directory }) => listBranches(directory));
+  server.handle(modeRpc, async ({ directory }) => ({ mode: await modes.read(directory) }));
+  server.handle(setModeRpc, async ({ directory, mode }) => ({ mode: await modes.choose(directory, mode) }));
   handlePacked(server, guideRpc, async (input) => {
     const state = await store.read(input);
     if (state.guide != null) trees.remember(state.guide);

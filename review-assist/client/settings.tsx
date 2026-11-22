@@ -37,6 +37,11 @@ const MODEL_ROWS = [
 ] as const;
 type ModelKey = (typeof MODEL_ROWS)[number]["key"];
 
+const SECTION_LINE_OPTIONS = [200, 500, 1000, 2000].map((lines) => ({
+  label: `About ${lines} lines`,
+  value: String(lines),
+}));
+
 const CONTEXT_LINE_OPTIONS = [0, 3, 5, 10, 20].map((lines) => ({
   label: lines === 0 ? "None" : `${lines} lines`,
   value: String(lines),
@@ -115,6 +120,19 @@ function ModelSettings({
               </SettingsRow>
             </View>
           ))}
+          <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+            <SettingsSelect
+              label="Section size"
+              hint="Changed lines a section aims for. A guide, not a limit: mechanical updates, such as every caller of a changed signature, stay in one section however large."
+              value={String(settings.values.sectionLines)}
+              options={SECTION_LINE_OPTIONS}
+              disabled={settings.saving}
+              error={settings.saveError}
+              onValueChange={(next) =>
+                void settings.save({ ...settings.values, sectionLines: Number(next) }, settings.revision)
+              }
+            />
+          </View>
           <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border }}>
             <SettingsSelect
               label="Surrounding lines"

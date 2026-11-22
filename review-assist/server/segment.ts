@@ -99,19 +99,23 @@ interface AgentInput {
 /** A part of a large diff whose agent fails leaves its lines to "Other changes", unless every part fails. */
 export async function proposeSections(
   paseo: Paseo,
-  input: AgentInput & { diff: ParsedDiff; context?: PromptContext; budget?: number },
+  input: AgentInput & { diff: ParsedDiff; sectionLines: number; context?: PromptContext; budget?: number },
 ): Promise<Proposal> {
   const chunks = diffChunks(input.diff, input.budget ?? PROMPT_BUDGET_CHARS, input.context);
+  const sizeOf = (chunk: string): SectionSize => ({
+    sectionLines: input.sectionLines,
+    changedLines: changedLinesIn(input.diff, chunk),
+  });
   if (chunks.length === 0) {
     return { sections: [] };
   }
   if (chunks.length === 1) {
-    return askAgent(paseo, input, "Guided review", segmentPrompt(chunks[0], null), proposalAnswer);
+    return askAgent(paseo, input, "Guided review", segmentPrompt(chunks[0], null, sizeOf(chunks[0])), proposalAnswer);
   }
   const failures: unknown[] = [];
   const parts = await mapLimit(chunks, MAX_PARALLEL_AGENTS, (chunk, index) => {
     const part = { index: index + 1, count: chunks.length };
-    const prompt = segmentPrompt(chunk, part);
+    const prompt = segmentPrompt(chunk, part, sizeOf(chunk));
     return askAgent(paseo, input, `Guided review, part ${part.index} of ${part.count}`, prompt, proposalAnswer).catch(
       (error: unknown) => {
         failures.push(error);
@@ -124,7 +128,8 @@ export async function proposeSections(
   await Promise.all(failures.slice(allFailed ? 1 : 0).map((error) => archiveFailed(paseo, error)));
   if (allFailed) throw failures[0];
   const sections = parts.flatMap((part) => part.sections);
-  const merge = await askAgent(paseo, input, "Guided review, merge", mergePrompt(input.diff, sections), mergeAnswer).catch(
+  const prompt = mergePrompt(input.diff, sections, input.sectionLines);
+  const merge = await askAgent(paseo, input, "Guided review, merge", prompt, mergeAnswer).catch(
     async (error: unknown) => {
       await archiveFailed(paseo, error);
       return null;
@@ -185,7 +190,11 @@ function renderInOrder(hunks: readonly DiffHunk[], context: PromptContext): stri
   });
 }
 
-export function segmentPrompt(body: string, part: { index: number; count: number } | null): string {
+export function segmentPrompt(
+  body: string,
+  part: { index: number; count: number } | null,
+  size: SectionSize,
+): string {
   const scope =
     part == null
       ? ""
@@ -193,7 +202,9 @@ export function segmentPrompt(body: string, part: { index: number; count: number
   return `You are preparing a guided code review: split the diff below into sections that a reviewer reads one at a time, in order.
 ${scope}
 How to split:
-- Group changes by intent and by layer of the stack, such as data model, core logic, API, UI, tests, configuration and docs. A section should take a few minutes to review: split large changes and merge trivial ones.
+- Group changes by intent. Keep layers of the stack, such as data model, core logic, API, UI, tests, configuration and docs, apart only where they hold different ideas.
+- ${sizeGuide(size)}
+- ${MECHANICAL_RULE}
 - Order sections so each builds on the ones before it: definitions before their uses, tests after the code they test.
 - A hunk may be split between sections at any line.
 
@@ -213,21 +224,59 @@ Lockfiles and generated files are already placed and are not shown.
 ${body}</diff>`;
 }
 
-function mergePrompt(diff: ParsedDiff, sections: readonly Section[]): string {
+export interface SectionSize {
+  readonly sectionLines: number;
+  readonly changedLines: number;
+}
+
+function sizeGuide({ sectionLines, changedLines }: SectionSize): string {
+  const sections = Math.max(1, Math.ceil(changedLines / sectionLines));
+  const expected = sections === 1 ? "one section" : `about ${sections} sections`;
+  return `Aim for roughly ${sectionLines} changed lines (+ and - together) per section. These changes total about ${changedLines}, so ${expected}, not many more. This is a guide, not a hard limit: a section somewhat over or under is fine. Merge small or related changes into one section instead of leaving many small ones, and split a large section only where it holds clearly separate ideas.`;
+}
+
+const MECHANICAL_RULE =
+  "Exception to the size guide: simple mechanical updates with no new logic for the reviewer to judge, such as a changed signature and every caller updated for it, a rename or import changes, all go together in one section with the other mechanical updates, however many lines or files. Don't count them against the guide.";
+
+function changedInRegions(diff: ParsedDiff, regions: Section["regions"]): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const { hunk, from, to } of regions) {
+    for (const line of diff.hunks.get(hunk)?.lines.slice(from, to + 1) ?? []) {
+      if (line.kind === "add") added++;
+      else if (line.kind === "del") removed++;
+    }
+  }
+  return { added, removed };
+}
+
+function changedLinesIn(diff: ParsedDiff, chunk: string): number {
+  return [...chunk.matchAll(/^HUNK (\S+) /gm)].reduce(
+    (sum, [, id]) => sum + (diff.hunks.get(id)?.lines.filter(({ kind }) => kind !== "context").length ?? 0),
+    0,
+  );
+}
+
+function mergePrompt(diff: ParsedDiff, sections: readonly Section[], sectionLines: number): string {
   const pathOfFile = new Map(diff.files.map((file) => [`f${file.index}`, file.path]));
   const pathOfHunk = new Map([...diff.hunks.values()].map((hunk) => [hunk.id, diff.files[hunk.fileIndex]?.path]));
+  let changedLines = 0;
   const listed = sections.map((section, index) => {
     const paths = new Set([
       ...section.regions.map(({ hunk }) => pathOfHunk.get(hunk)),
       ...section.files.map((file) => pathOfFile.get(file)),
     ]);
     const files = [...paths].filter((path) => path != null).join(", ");
-    return `s${index}: ${section.title}\n  ${section.description}\n  files: ${files}`;
+    const { added, removed } = changedInRegions(diff, section.regions);
+    changedLines += added + removed;
+    return `s${index}: ${section.title} (+${added}/-${removed})\n  ${section.description}\n  files: ${files}`;
   });
   return `You are preparing a guided code review. A diff too large for one pass was split into parts, and each part into sections. Merge them into one list that a reviewer reads one at a time, in order.
 
 How to merge:
-- Combine sections from different parts that make the same change, such as one feature's changes split across parts. Leave sections apart when each is already a few minutes' review.
+- Combine sections from different parts that make the same change, such as one feature's changes split across parts.
+- ${sizeGuide({ sectionLines, changedLines })} Each section below shows its added and removed lines.
+- ${MECHANICAL_RULE}
 - Order sections so each builds on the ones before it: definitions before their uses, tests after the code they test.
 
 How to answer:

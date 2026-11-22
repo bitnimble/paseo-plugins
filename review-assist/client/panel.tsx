@@ -20,6 +20,7 @@ import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
 import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
 import { useCodeIntelligence } from "./use-code";
+import { useSharedMode } from "./use-mode";
 import { commentStore, useReview } from "./use-review";
 
 type Menu = "mode" | "view" | "model";
@@ -72,8 +73,19 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
     additions: diffStat?.additions,
     deletions: diffStat?.deletions,
   }));
-  const [place, setPlace] = useTabState(panelTab, placeSchema, START);
-  const { mode, tab, section } = place;
+  const [sharedMode, shareMode] = useSharedMode(workspace?.directory ?? null);
+  const [saved, setPlace] = useTabState(panelTab, placeSchema, START);
+  const sharedValue = sharedMode.status === "ready" ? sharedMode.mode : null;
+  const mode = sharedValue ?? saved.mode;
+  // Another device switched the workspace's mode: this tab's section and scroll were for the old diff.
+  const place: Place = modeKey(saved.mode) === modeKey(mode) ? saved : { mode, tab: saved.tab, section: 0 };
+  const unshared = sharedMode.status === "ready" && sharedMode.mode == null;
+  const tabHasPlace = panelTab.state != null;
+  useEffect(() => {
+    // A tab that was already open holds the workspace's only record of its mode; a new tab's is just the default.
+    if (unshared && tabHasPlace) shareMode(saved.mode);
+  }, [unshared, tabHasPlace]);
+  const { tab, section } = place;
   const placeRef = useRef(place);
   placeRef.current = place;
   const setScrollGuided = (scrollGuided: ScrollAnchor) =>
@@ -89,7 +101,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const { view, model, setView, setSections, setModel } = useSavedOptions(narrow);
   const review = useReview({
     workspaceId,
-    directory: workspace?.directory ?? null,
+    directory: sharedMode.status === "loading" ? null : (workspace?.directory ?? null),
     projectId: workspace?.projectId ?? null,
     mode,
     revision: `${workspace?.additions}:${workspace?.deletions}`,
@@ -105,7 +117,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   );
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12 };
 
-  if (workspace == null) return <Loading />;
+  if (workspace == null || sharedMode.status === "loading") return <Loading />;
   if (workspace.projectKind !== "git") {
     return (
       <View style={{ flex: 1, padding: 24, backgroundColor: theme.colors.surface0 }}>
@@ -127,7 +139,8 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
   const paneShown = narrow ? drawerOpen : view.showPane;
   const closeDrawer = () => setDrawerOpen(false);
   const pickMode = (next: DiffMode) => {
-    if (modeKey(next) !== modeKey(mode)) setPlace({ ...place, mode: next, section: 0 });
+    if (sharedValue == null || modeKey(next) !== modeKey(sharedValue)) shareMode(next);
+    if (modeKey(next) !== modeKey(mode)) setPlace({ mode: next, tab, section: 0 });
     setDrawerOpen(false);
     setMenu(null);
   };

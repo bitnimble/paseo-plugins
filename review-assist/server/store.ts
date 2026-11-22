@@ -69,6 +69,7 @@ export class GuideStore {
       workspaceId: target.workspaceId,
       models,
       diff,
+      sectionLines: settings.sectionLines,
       context,
       onAgent: (agentId) => {
         const job = this.jobs.get(key);
