@@ -66,6 +66,20 @@ test("a row holding the view's top shrinking above it, as a file collapsed from 
   expect(mockScrollTo).toHaveBeenLastCalledWith({ y: 100, animated: false });
 });
 
+test("the list ends at its last row, which counts as the top block once scrolled to the end", () => {
+  const onTopBlock = jest.fn();
+  const blocks = ROWS.map((row, blockIndex) => ({ ...row, blockIndex }));
+  render(<ScrollList rows={blocks} handle={createRef()} style={null} scrollEnabled bottomInset={20} onTopBlock={onTopBlock} />);
+  const scroll = screen.getByTestId("scroll");
+  expect(scroll.props.contentContainerStyle).toEqual({ paddingBottom: 20 });
+  fireEvent(scroll, "layout", { nativeEvent: { layout: { height: 250 } } });
+
+  fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { y: 60 } } });
+  expect(onTopBlock).toHaveBeenLastCalledWith(0);
+  fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { y: 70 } } });
+  expect(onTopBlock).toHaveBeenLastCalledWith(2);
+});
+
 test("a jump mid-fling lands where asked and ends the fling's hold", () => {
   const handle = renderScrolledPastFirstRow();
   fireEvent(screen.getByTestId("scroll"), "momentumScrollBegin");

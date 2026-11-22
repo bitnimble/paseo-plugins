@@ -52,6 +52,8 @@ export interface ScrollListHandle {
   /** Bumped on every scroll event, so a caller can tell a requested jump has actually landed. */
   scrollSeq(): number;
   topOf(key: string): number | null;
+  /** The furthest the list scrolls, with the rows measured so far. */
+  maxOffset(): number;
   scrollTo(offset: number, animated: boolean): void;
 }
 
@@ -165,30 +167,24 @@ export function ScrollList({
     released.current = false;
     jumpTo(to);
   });
-  useImperativeHandle(
-    handle,
-    () => ({
-      offset: () => offset.current,
-      settledOffset: () => settled.current,
-      scrollSeq: () => seq.current,
-      topOf: layout.topOf,
-      scrollTo: (y, animated) => (animated ? scroll.current?.scrollTo({ y: y - held.current, animated }) : jumpTo(y)),
-    }),
-    [layout, jumpTo],
-  );
-  let lastBlockRow = rows.length - 1;
-  while (lastBlockRow >= 0 && rows[lastBlockRow].blockIndex == null) lastBlockRow--;
-  // From the last reportable block to the end: else that block, when shorter than the view, never reaches the
-  // top, so it is never reported or jumped to exactly. Rows trailing it (a section footer) count as part of it.
-  const tail = lastBlockRow < 0 ? 0 : layout.tops[rows.length] - layout.tops[lastBlockRow];
-  const pastEnd = onTopBlock == null ? 0 : Math.max(0, viewport.height - tail);
+  const maxOffset = (): number => Math.max(0, layout.tops[rows.length] + bottomInset - viewport.height);
+  useImperativeHandle(handle, () => ({
+    offset: () => offset.current,
+    settledOffset: () => settled.current,
+    scrollSeq: () => seq.current,
+    topOf: layout.topOf,
+    maxOffset,
+    scrollTo: (y, animated) => (animated ? scroll.current?.scrollTo({ y: y - held.current, animated }) : jumpTo(y)),
+  }));
   const handleScroll = useRef((_event: NativeSyntheticEvent<NativeScrollEvent>): void => undefined);
   handleScroll.current = (event) => {
     offset.current = event.nativeEvent.contentOffset.y + held.current;
     settled.current = offset.current;
     seq.current += 1;
     for (const listener of listeners) listener();
-    const topBlock = rows[rowAt(layout.tops, offset.current)]?.blockIndex;
+    const end = maxOffset();
+    const atEnd = end > 0 && offset.current >= end - 1;
+    const topBlock = atEnd ? lastBlock(rows) : rows[rowAt(layout.tops, offset.current)]?.blockIndex;
     if (topBlock != null) onTopBlock?.(topBlock);
   };
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -216,7 +212,7 @@ export function ScrollList({
       onScrollBeginDrag={release}
       onScroll={onScroll}
       scrollEventThrottle={16}
-      contentContainerStyle={{ paddingBottom: bottomInset + pastEnd }}
+      contentContainerStyle={{ paddingBottom: bottomInset }}
     >
       <ScrollPosition.Provider value={position}>
         <ViewportContext.Provider value={viewport}>
@@ -357,6 +353,14 @@ function useBand(viewport: Viewport, top: number, total: number): number {
     const within = Math.min(Math.max(viewport.offset() - top, -viewport.height), total);
     return Math.floor(within / step) * step;
   });
+}
+
+/** At the list's end, as a last block shorter than the view never reaches its top. */
+function lastBlock(rows: readonly WindowedRow[]): number | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].blockIndex != null) return rows[i].blockIndex;
+  }
+  return undefined;
 }
 
 function range(from: number, to: number): number[] {

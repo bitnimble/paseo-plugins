@@ -110,6 +110,7 @@ function renderWide(onScroll: (anchor: object) => void): void {
 test("a wide full diff mounts back at the saved place within its file, and saves where it is scrolled to", () => {
   const onScroll = jest.fn();
   renderWide(onScroll);
+  act(() => screen.getByTestId("scroll").props.onLayout({ nativeEvent: { layout: { height: 400 } } }));
   act(() => jest.advanceTimersByTime(3_000));
   expect(mockScrollTo).toHaveBeenLastCalledWith(secondTop + 40);
 

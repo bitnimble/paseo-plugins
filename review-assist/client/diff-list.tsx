@@ -209,7 +209,7 @@ export function DiffList(props: DiffListProps) {
   const scrollToBlockTop = useCallback(
     (index: number): number | null => {
       const top = blockTopOf(list.current, blocks, index);
-      if (top != null) list.current?.scrollTo(top, false);
+      if (top != null) list.current?.scrollTo(Math.min(top, list.current.maxOffset()), false);
       return top;
     },
     [blocks],
@@ -256,7 +256,7 @@ export function DiffList(props: DiffListProps) {
         return;
       }
       const blockTop = blockTopOf(list.current, latest.current.props.blocks, restore.block);
-      const top = blockTop == null ? null : blockTop + restore.within;
+      const top = blockTop == null ? null : Math.min(blockTop + restore.within, list.current?.maxOffset() ?? Infinity);
       if (top == null || ++ticks > RESTORE_MAX_TICKS) {
         finish();
         return;
