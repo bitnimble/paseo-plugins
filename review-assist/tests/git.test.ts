@@ -124,6 +124,33 @@ test("branches list the default branch and every other, newest first", async () 
   }
 });
 
+test("the default comparison uses whichever of main and origin/main forked from HEAD most recently", async () => {
+  const dir = freshRepo();
+  const commit = (path: string): string => {
+    write(path, `${path}\n`, dir);
+    gitIn(dir, "add", "-A");
+    gitIn(dir, "commit", "-q", "-m", path);
+    return gitIn(dir, "rev-parse", "HEAD").trim();
+  };
+  const base = commit("base.txt");
+  gitIn(dir, "checkout", "-q", "-b", "upstream");
+  const pulled = commit("pulled.txt");
+  gitIn(dir, "update-ref", "refs/remotes/origin/main", pulled);
+  gitIn(dir, "checkout", "-q", "-b", "work");
+  commit("work.txt");
+
+  const staleLocal = await readDiff(dir, DEFAULT_BRANCH_MODE);
+  assert.deepEqual(staleLocal.base, { label: "origin/main", sha: pulled });
+  assert.deepEqual([...paths(staleLocal.raw).keys()], ["work.txt"]);
+
+  gitIn(dir, "update-ref", "refs/heads/main", pulled);
+  gitIn(dir, "update-ref", "refs/remotes/origin/main", base);
+  assert.deepEqual((await readDiff(dir, DEFAULT_BRANCH_MODE)).base, { label: "main", sha: pulled });
+
+  gitIn(dir, "update-ref", "refs/remotes/origin/main", pulled);
+  assert.deepEqual((await readDiff(dir, DEFAULT_BRANCH_MODE)).base, { label: "main", sha: pulled });
+});
+
 test("linguist-generated marks files generated, and unsetting it overrides the name", async () => {
   const dir = freshRepo();
   write(".gitattributes", "db/* linguist-generated=true\nyarn.lock -linguist-generated\n", dir);

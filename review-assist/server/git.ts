@@ -204,37 +204,75 @@ async function resolveBase(root: string, mode: DiffMode): Promise<DiffBase> {
   if (mode.kind === "uncommitted") {
     return { label: "HEAD", sha: head };
   }
-  const branch = mode.branch ?? (await defaultBranch(root));
-  if (branch == null) {
+  if (mode.branch == null) {
+    return defaultBase(root, head);
+  }
+  const tip = await revParse(root, mode.branch);
+  if (tip == null) {
+    throw new Error(`No branch named ${mode.branch}`);
+  }
+  const base = await mergeBase(root, head, tip);
+  return base == null
+    ? { label: `HEAD (no common history with ${mode.branch})`, sha: head }
+    : { label: mode.branch, sha: base };
+}
+
+/**
+ * Against whichever of the local and remote default branch forked from HEAD most recently: a stale
+ * one's older merge-base would pull the other's commits into the diff.
+ */
+async function defaultBase(root: string, head: string): Promise<DiffBase> {
+  const refs = await defaultBranchRefs(root);
+  if (refs.length === 0) {
     return { label: "HEAD (no default branch found)", sha: head };
   }
-  const tip = await revParse(root, branch);
-  if (tip == null) {
-    throw new Error(`No branch named ${branch}`);
-  }
-  const mergeBase = await git(root, ["merge-base", "HEAD", tip]).then(
+  const bases = await Promise.all(
+    refs.map(async ({ label, tip }) => {
+      const sha = await mergeBase(root, head, tip);
+      if (sha == null) return null;
+      const distance = Number((await git(root, ["rev-list", "--count", `${sha}..${head}`])).trim());
+      return { label, sha, distance };
+    }),
+  );
+  const closest = bases.reduce<{ label: string; sha: string; distance: number } | null>(
+    (best, base) => (base != null && (best == null || base.distance < best.distance) ? base : best),
+    null,
+  );
+  return closest == null
+    ? { label: `HEAD (no common history with ${refs[0].label})`, sha: head }
+    : { label: closest.label, sha: closest.sha };
+}
+
+async function mergeBase(root: string, head: string, tip: string): Promise<string | null> {
+  return git(root, ["merge-base", head, tip]).then(
     (out) => out.trim(),
     () => null,
   );
-  return mergeBase == null
-    ? { label: `HEAD (no common history with ${branch})`, sha: head }
-    : { label: branch, sha: mergeBase };
 }
 
-async function defaultBranch(root: string): Promise<string | null> {
+/** The default branch as it exists locally and on origin, local first. */
+async function defaultBranchRefs(root: string): Promise<{ label: string; tip: string }[]> {
   const remoteHead = await git(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]).then(
     (out) => out.trim() || null,
     () => null,
   );
-  // Local first: worktrees branch off local main, and a stale origin/main's older merge-base
-  // would pull main's own commits into the diff.
-  const names = [remoteHead?.replace(/^origin\//, ""), "main", "master"];
-  for (const name of names) {
-    if (name != null && (await revParse(root, `refs/heads/${name}`)) != null) {
-      return name;
-    }
+  for (const name of [remoteHead?.replace(/^origin\//, ""), "main", "master"]) {
+    if (name == null) continue;
+    const [local, remote] = await Promise.all([
+      revParse(root, `refs/heads/${name}`),
+      revParse(root, `refs/remotes/origin/${name}`),
+    ]);
+    const refs = [
+      local == null ? null : { label: name, tip: local },
+      remote == null ? null : { label: `origin/${name}`, tip: remote },
+    ].filter((ref) => ref != null);
+    if (refs.length > 0) return refs;
   }
-  return remoteHead;
+  return [];
+}
+
+async function defaultBranch(root: string): Promise<string | null> {
+  return (await defaultBranchRefs(root))[0]?.label ?? null;
 }
 
 export async function listBranches(directory: string): Promise<{ defaultBranch: string | null; branches: string[] }> {
