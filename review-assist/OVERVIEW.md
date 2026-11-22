@@ -117,7 +117,9 @@ so you can open it to follow along, and it is archived once it answers. A diff t
 agent is split by path into parts, one agent each, up to four at a time, and one more agent merges
 and orders their sections; a part whose agent fails leaves its lines under **Other changes**. The result is
 cached per diff on the daemon; when the diff changes, the panel says so and offers to regenerate.
-Reading the diff uses a copy of the git index, so your staging area is never touched.
+**Refresh** in the toolbar has **Refresh Git state**, to reread the diff, and **Regenerate guided
+review**, to run the agent again on the current diff at any time. Reading the diff uses a copy of the
+git index, so your staging area is never touched.
 
 **Viewed** marks follow content, not sections: after a regeneration, a file stays viewed in a
 section while the lines that section shows are unchanged, and goes back to unviewed once any of

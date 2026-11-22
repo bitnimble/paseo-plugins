@@ -23,7 +23,7 @@ import { useCodeIntelligence } from "./use-code";
 import { useSharedMode } from "./use-mode";
 import { commentStore, useReview } from "./use-review";
 
-type Menu = "mode" | "view" | "model";
+type Menu = "mode" | "view" | "model" | "refresh";
 type SavedOptions = Pick<ReviewSettings, (typeof SAVED_KEYS)[number]>;
 type SavedViewOptions = Omit<SavedOptions, "model" | "sectionsNarrow" | "sectionsWide">;
 
@@ -134,6 +134,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
         )
       : null;
   const openMenu = (name: Menu) => (open: boolean) => setMenu(open ? name : null);
+  const generating = review.guide?.job?.status === "running";
   const comments = commentStore(review);
   const resizePane = (paneWidth: number) => setView({ paneWidth });
   const paneShown = narrow ? drawerOpen : view.showPane;
@@ -309,13 +310,35 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
           <MenuItem theme={theme} label="Collapse all" onPress={() => foldAll(true)} />
           <MenuItem theme={theme} label="Expand all" onPress={() => foldAll(false)} />
         </Dropdown>
-        <IconButton
+        <Dropdown
           theme={theme}
+          label="Refresh"
           icon="RefreshCw"
-          label="Reload changes from git"
-          disabled={review.refreshing}
-          onPress={review.refresh}
-        />
+          bounds={toolbar}
+          open={menu === "refresh"}
+          onOpenChange={openMenu("refresh")}
+        >
+          <MenuItem
+            theme={theme}
+            label="Refresh Git state"
+            disabled={review.refreshing}
+            onPress={() => {
+              setMenu(null);
+              review.refresh();
+            }}
+          />
+          <MenuItem
+            theme={theme}
+            label={review.guide?.record == null ? "Generate guided review" : "Regenerate guided review"}
+            hint={generating ? "Already running" : undefined}
+            disabled={generating || live.status !== "ready" || live.diff.files.length === 0}
+            onPress={() => {
+              setMenu(null);
+              setPlace({ ...place, tab: "guided" });
+              review.generate();
+            }}
+          />
+        </Dropdown>
       </View>
 
       {review.trust === "undecided" ? (
