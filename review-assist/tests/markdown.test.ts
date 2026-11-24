@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { markdownDiff } from "../kit/server/markdown";
-import type { MarkdownBlock, MarkdownEntry, MarkdownRun } from "../kit/shared/protocol";
+import { HIGHLIGHT_STYLES, type MarkdownBlock, type MarkdownEntry, type MarkdownRun } from "../kit/shared/protocol";
 
 function entries(before: string, after: string): MarkdownEntry[] {
   const outcome = markdownDiff(before, after);
@@ -206,7 +206,7 @@ test("a large code block compares quickly", () => {
   assert.ok(performance.now() - started < 2000);
   assert.deepEqual(
     entry.block.kind === "code" ? entry.block.lines.filter(({ change }) => change != null) : [],
-    [{ text: "inserted", change: "added" }],
+    [{ text: "inserted", change: "added", tokens: null }],
   );
 });
 
@@ -288,10 +288,19 @@ test("emphasis, strikethrough, images, breaks and numeric entities come through 
   );
 });
 
-test("a change only to how the source is written has nothing to show", () => {
-  assert.equal(entries("", "Some *emphasis* here.\n").length, 1);
-  assert.deepEqual(markdownDiff("Some *emphasis* here.\n<!-- note -->\n", "Some _emphasis_\nhere.\n"), {
-    status: "unavailable",
-    reason: "Only the markdown source changed, not how it reads.",
-  });
+test("a change only to how the source is written leaves every block the same", () => {
+  assert.deepEqual(summary(entries("Some *emphasis* here.\n<!-- note -->\n", "Some _emphasis_\nhere.\n")), [
+    "same Some emphasis here.",
+  ]);
+});
+
+test("a fenced block keeps its language and colors the lines of a language the highlighter knows", () => {
+  const [code, diagram] = entries("", "```typescript\nconst a = 1;\n```\n\n```mermaid\ngraph TD\n```\n").map(
+    (entry) => entry.block,
+  );
+  assert.ok(code.kind === "code" && diagram.kind === "code");
+  assert.equal(code.language, "typescript");
+  assert.deepEqual(code.lines[0].tokens?.slice(0, 2), [5, HIGHLIGHT_STYLES.indexOf("keyword")]);
+  assert.equal(diagram.language, "mermaid");
+  assert.deepEqual(diagram.lines, [{ text: "graph TD", change: null, tokens: null }]);
 });

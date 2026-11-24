@@ -4,14 +4,16 @@ import { Resvg, initWasm } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
 import mermaid from "mermaid";
 import { parentPort } from "node:worker_threads";
-import { messageOf } from "../../kit/shared/errors";
-import type { MermaidOutcome, MermaidPalette } from "../../shared/protocol";
+import type { HostElement, SvgElement } from "svgdom";
+import { messageOf } from "../../shared/errors";
+import type { MermaidDiff, MermaidDraw, MermaidOutcome, MermaidPalette } from "../../shared/protocol";
 import { type Diagram, diffDiagrams, diffSource } from "./diagram";
 import type { MermaidRequest, MermaidResponse } from "./messages";
 import { paintDiff } from "./paint";
 import { edgeDomIds, readDiagram } from "./read-diagram";
 
 const PNG_SCALE = 2;
+const CATEGORY_HUES = [215, 150, 35, 330, 265, 185, 5, 95, 50, 295, 170, 240];
 const FONT_FACE = `<style>@font-face{font-family:"${FONT_FAMILY}";src:url(data:font/ttf;base64,${Buffer.from(font).toString("base64")})}</style>`;
 
 const rasterizer = initWasm(wasm);
@@ -21,13 +23,14 @@ let queue = Promise.resolve();
 parentPort?.on("message", (request: MermaidRequest) => {
   // One at a time: renders share the one document.
   queue = queue.then(async () => {
-    const outcome = await drawDiff(request).catch((error: unknown) => unavailable(messageOf(error)));
+    const job = request.kind === "diff" ? drawDiff(request) : drawSource(request);
+    const outcome = await job.catch((error: unknown) => unavailable(messageOf(error)));
     parentPort?.postMessage({ id: request.id, outcome } satisfies MermaidResponse);
   });
 });
 
-async function drawDiff({ before, after, format, palette, distance }: MermaidRequest): Promise<MermaidOutcome> {
-  mermaid.initialize(mermaidConfig(palette));
+async function drawDiff({ before, after, format, palette, distance }: MermaidDiff): Promise<MermaidOutcome> {
+  mermaid.initialize(diffConfig(palette));
   const [old, current] = await Promise.all([parse(before, "before"), parse(after, "after")]);
   if (typeof old === "string") return unavailable(old);
   if (typeof current === "string") return unavailable(current);
@@ -39,19 +42,44 @@ async function drawDiff({ before, after, format, palette, distance }: MermaidReq
 
   const source = diffSource(diff);
   const union = await mermaid.mermaidAPI.getDiagramFromText(source);
+  const { svg, svgId, host } = await render(source);
+  if (svg == null) return unavailable("Mermaid drew nothing.");
+  paintDiff(svg, svgId, diff, edgeDomIds(union.type, union.db), palette, document);
+  return picture(svg, host, format, palette, diff.truncated);
+}
+
+async function drawSource({ source, format, palette }: MermaidDraw): Promise<MermaidOutcome> {
+  mermaid.initialize(writtenConfig(palette));
+  try {
+    await mermaid.parse(source);
+  } catch (error) {
+    return unavailable(`The diagram doesn't parse: ${messageOf(error)}`);
+  }
+  const { svg, host } = await render(source);
+  return svg == null ? unavailable("Mermaid drew nothing.") : picture(svg, host, format, palette, false);
+}
+
+async function render(source: string): Promise<{ svg: SvgElement | null; svgId: string; host: HostElement }> {
   const svgId = `review-mermaid-${renders++}`;
   const host = document.createElement("div");
   host.innerHTML = (await mermaid.render(svgId, source)).svg;
-  const svg = host.firstChild;
-  if (svg == null) return unavailable("Mermaid drew nothing.");
-  paintDiff(svg, svgId, diff, edgeDomIds(union.type, union.db), palette, document);
+  return { svg: host.firstChild, svgId, host };
+}
+
+async function picture(
+  svg: SvgElement,
+  host: HostElement,
+  format: MermaidDraw["format"],
+  palette: MermaidPalette,
+  truncated: boolean,
+): Promise<MermaidOutcome> {
   const [, , width, height] = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
   if (!(width > 0 && height > 0)) return unavailable("Mermaid drew nothing.");
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("style", "");
   const markup = host.innerHTML;
-  const drawn = { status: "ready", width, height, truncated: diff.truncated } as const;
+  const drawn = { status: "ready", width, height, truncated } as const;
   if (format === "svg") {
     const withFont = markup.replace(/^<svg[^>]*>/, (tag) => `${tag}${FONT_FACE}`);
     return { ...drawn, uri: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(withFont)}` };
@@ -86,14 +114,54 @@ function unavailable(reason: string): MermaidOutcome {
   return { status: "unavailable", reason };
 }
 
-function mermaidConfig(palette: MermaidPalette): Parameters<typeof mermaid.initialize>[0] {
+type MermaidConfig = Parameters<typeof mermaid.initialize>[0];
+
+const BASE_CONFIG = {
+  startOnLoad: false,
+  // "strict" sanitizes labels with DOMPurify, which needs a real DOM.
+  securityLevel: "loose",
+  htmlLabels: false,
+  flowchart: { htmlLabels: false },
+  fontFamily: FONT_FAMILY,
+} as const satisfies MermaidConfig;
+
+/** Categorical colors set outright: derived from a dark primary, a pie's slices and a mindmap's branches go black. */
+function writtenConfig(palette: MermaidPalette): MermaidConfig {
+  const hues = CATEGORY_HUES.map((hue) => (palette.dark ? `hsl(${hue}, 45%, 38%)` : `hsl(${hue}, 65%, 82%)`));
+  const scale = (prefix: string, colors: readonly string[]) =>
+    Object.fromEntries(colors.map((color, index) => [`${prefix}${index}`, color]));
   return {
-    startOnLoad: false,
-    // "strict" sanitizes labels with DOMPurify, which needs a real DOM.
-    securityLevel: "loose",
-    htmlLabels: false,
-    flowchart: { htmlLabels: false },
-    fontFamily: FONT_FAMILY,
+    ...BASE_CONFIG,
+    theme: "base",
+    themeVariables: {
+      darkMode: palette.dark,
+      fontFamily: FONT_FAMILY,
+      fontSize: `${FONT_SIZE}px`,
+      background: palette.background,
+      primaryColor: hues[0],
+      secondaryColor: hues[1],
+      tertiaryColor: hues[2],
+      primaryTextColor: palette.foreground,
+      primaryBorderColor: palette.border,
+      lineColor: palette.muted,
+      textColor: palette.foreground,
+      titleColor: palette.foreground,
+      edgeLabelBackground: palette.background,
+      pieStrokeColor: palette.background,
+      pieOuterStrokeColor: palette.border,
+      ...Object.fromEntries(hues.map((color, index) => [`pie${index + 1}`, color])),
+      ...scale("cScale", hues),
+      ...scale("cScaleLabel", hues.map(() => palette.foreground)),
+      ...scale("git", hues.slice(0, 8)),
+      ...scale("gitBranchLabel", hues.slice(0, 8).map(() => palette.foreground)),
+    },
+  };
+}
+
+/** Neutral, so the changes painted over it stand out. */
+function diffConfig(palette: MermaidPalette): MermaidConfig {
+  return {
+    ...BASE_CONFIG,
     theme: "base",
     themeVariables: {
       darkMode: palette.dark,

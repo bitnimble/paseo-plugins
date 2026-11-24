@@ -102,7 +102,9 @@ header, a renamed column with the one it replaces, and marks added and removed c
 and the changed words in each cell. Renumbering a list leaves its items unchanged. Unchanged blocks
 fold away beyond two on each side of a change, unless a comment is among them, and the fold's row
 shows them all. A change only to how the source is written, such as `*` for `_`, says so above the
-text diff.
+text diff. Code blocks are colored by their fence's language where Paseo's highlighter knows it, and
+a `mermaid` block is drawn as its diagram, any kind mermaid draws, with a changed flowchart or class
+diagram's changes painted over it.
 
 Comments work in the visual view too: hover a block and press **+** to comment on the lines it is
 written on, shift-click another block's **+** to widen the comment to it, or on a touchscreen tap a

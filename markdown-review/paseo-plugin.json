@@ -4,6 +4,7 @@
   "description": "Comment on a rendered markdown document and send the comments or suggested edits to an agent.",
   "build": [
     ["npm", "ci", "--omit=dev", "--ignore-scripts"],
+    ["npm", "run", "build-mermaid"],
     ["npm", "run", "build-client"],
     ["npm", "run", "build-server"]
   ],

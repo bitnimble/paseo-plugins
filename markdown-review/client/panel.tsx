@@ -1,7 +1,7 @@
 import { type PluginFilePanelProps, useFileText, useRpc } from "@getpaseo/plugin/client";
 import { Loading, ScrollView } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { type ScrollView as NativeScrollView, Text, View } from "react-native";
 import { FileLabel } from "../kit/client/controls";
 import { ErrorBoundary } from "../kit/client/error-boundary";
@@ -12,6 +12,7 @@ import { Toolbar } from "../kit/client/menu";
 import { SendComments } from "../kit/client/send-comments";
 import { fileComments, useCommentDrafts } from "../kit/client/use-comment-drafts";
 import { useReviewState } from "../kit/client/use-review-state";
+import { ScrollLock } from "../kit/client/zoomable-image";
 import type { FileBlock } from "../kit/shared/blocks";
 import { messageOf } from "../kit/shared/errors";
 import { UNCOMMITTED_MODE } from "../kit/shared/protocol";
@@ -56,6 +57,7 @@ function MarkdownReview({ file, theme, workspaceId }: PluginFilePanelProps) {
     scrollTo: (y, animated) => scroll.current?.scrollTo({ y, animated }),
   });
   const keyboard = useCentreAboveKeyboard(frame, scroller, draft != null);
+  const [scrollLocked, setScrollLocked] = useState(false);
   const note = { color: theme.colors.foregroundMuted, fontSize: 13, padding: 16 };
 
   if (location.error != null) {
@@ -81,23 +83,26 @@ function MarkdownReview({ file, theme, workspaceId }: PluginFilePanelProps) {
         <ScrollView
           ref={scroll}
           style={{ flex: 1 }}
+          scrollEnabled={!scrollLocked}
           onScroll={(event) => {
             offset.current = event.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}
           contentContainerStyle={{ maxWidth: 900, width: "100%", alignSelf: "center", paddingBottom: keyboard.bottomInset }}
         >
-          <CentreAboveKeyboard.Provider value={keyboard.centre}>
-            <MarkdownBody
-              block={block}
-              text={text}
-              theme={theme}
-              comments={commentsHere}
-              foldUnchanged={false}
-              noteStyle={note}
-              fallback={null}
-            />
-          </CentreAboveKeyboard.Provider>
+          <ScrollLock.Provider value={setScrollLocked}>
+            <CentreAboveKeyboard.Provider value={keyboard.centre}>
+              <MarkdownBody
+                block={block}
+                text={text}
+                theme={theme}
+                comments={commentsHere}
+                view="document"
+                noteStyle={note}
+                fallback={null}
+              />
+            </CentreAboveKeyboard.Provider>
+          </ScrollLock.Provider>
         </ScrollView>
       </View>
     </View>

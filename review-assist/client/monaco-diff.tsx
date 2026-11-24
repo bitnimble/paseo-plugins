@@ -15,6 +15,7 @@ import {
 } from "../kit/client/comments";
 import { ShowMoreChanges } from "../kit/client/controls";
 import { CODE_SURFACE, MONOSPACE, STICKY } from "../kit/client/palette";
+import type { SyntaxPalette } from "../kit/client/syntax-colors";
 import { type FileBlock, blockLines } from "../kit/shared/blocks";
 import { detailsOf } from "../kit/shared/errors";
 import { type BlockSides, CONTEXT_LINES, type Side, blockSides } from "../kit/shared/sides";
@@ -32,7 +33,7 @@ import type {
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import { syntaxRegions } from "./monaco/syntax-regions";
-import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
+import { THEME_NAME } from "./monaco/theme";
 import { useSyntaxDiff } from "./use-code";
 import { asEditorContainer, asOverflowHost, keepMovedCodeCompare, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
 import { ContentTop, PinnedHeight, useViewport } from "./windowed-rows";

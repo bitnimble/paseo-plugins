@@ -1,7 +1,7 @@
+import { type ColoredText, type SyntaxPalette, coloredTokens } from "../kit/client/syntax-colors";
 import type { Span } from "../kit/shared/display";
+import type { LineTokens } from "../kit/shared/protocol";
 import type { SideLine } from "../kit/shared/sides";
-import { HIGHLIGHT_STYLES, type LineTokens } from "../shared/protocol";
-import type { SyntaxPalette } from "./monaco/theme";
 
 // Skips U+2000-206F, general punctuation such as curly quotes and dashes.
 const WORDS = /[\w$À-῿⁰-￿]+/g;
@@ -10,11 +10,6 @@ const WORD = /^[\w$À-῿⁰-￿]+$/;
 export interface FileSyntax {
   readonly old: LineTokens;
   readonly new: LineTokens;
-}
-
-export interface ColoredText {
-  readonly text: string;
-  readonly color: string | null;
 }
 
 export interface CodePiece extends ColoredText {
@@ -31,18 +26,6 @@ export function lineTokens(syntax: FileSyntax | null, palette: SyntaxPalette | n
   const encoded =
     line.newNumber != null ? syntax.new[line.newNumber - 1] : line.oldNumber != null ? syntax.old[line.oldNumber - 1] : null;
   return encoded == null ? null : coloredTokens(encoded, line.text, palette);
-}
-
-export function coloredTokens(encoded: readonly number[], text: string, palette: SyntaxPalette): ColoredText[] {
-  const tokens: ColoredText[] = [];
-  let at = 0;
-  for (let i = 0; i + 1 < encoded.length; i += 2) {
-    const style = HIGHLIGHT_STYLES[encoded[i + 1]];
-    tokens.push({ text: text.slice(at, at + encoded[i]), color: style == null ? null : (palette[style] ?? null) });
-    at += encoded[i];
-  }
-  if (at < text.length) tokens.push({ text: text.slice(at), color: null });
-  return tokens;
 }
 
 /** `tokens` cut where each span starts and ends, and around each word when `words`. */

@@ -1,4 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
+import type { SyntaxPalette } from "../../kit/client/syntax-colors";
 import { hashText } from "../../kit/shared/hash";
 import { toHoverMarkdown, toLocations } from "../../shared/lsp";
 import type { LspMethod, MonacoAsset } from "../../shared/protocol";
@@ -22,7 +23,7 @@ import type {
 } from "./api";
 import { toLspPosition, toMonacoRange } from "./convert";
 import type { SyntaxRegion } from "./syntax-regions";
-import { THEME_NAME, type SyntaxPalette, monacoTheme } from "./theme";
+import { THEME_NAME, monacoTheme } from "./theme";
 
 export interface CodeSource {
   readonly root: string;

@@ -34,8 +34,10 @@ import {
   inScope,
 } from "./comments";
 import type { FileText } from "./file-text";
+import { MermaidDiagram } from "./mermaid-view";
 import { usePackedRpc } from "./packed";
 import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
+import { type SyntaxPalette, coloredTokens, useSyntaxPalette } from "./syntax-colors";
 import { hasMouse } from "./web";
 
 const CONTEXT_BLOCKS = 2;
@@ -48,13 +50,17 @@ type Row =
   | { readonly kind: "hidden"; readonly count: number; readonly run: number };
 
 type MarkdownStyles = ReturnType<typeof createStyles>;
+type CodeBlock = Extract<MarkdownBlock, { kind: "code" }>;
+
+/** `diff` folds unchanged blocks away from the changes; `document` shows every block. */
+export type MarkdownView = "diff" | "document";
 
 export function MarkdownBody({
   block,
   text,
   theme,
   comments,
-  foldUnchanged,
+  view,
   noteStyle,
   fallback,
 }: {
@@ -62,7 +68,7 @@ export function MarkdownBody({
   text: FileText;
   theme: PluginTheme;
   comments: FileComments;
-  foldUnchanged: boolean;
+  view: MarkdownView;
   noteStyle: TextStyle;
   fallback: ReactNode;
 }) {
@@ -73,7 +79,14 @@ export function MarkdownBody({
   // Entries, and an open comment, index the sides they came from: the last matching pair stays while the next loads.
   const shown = useRef<{ sides: BlockSides; entries: readonly MarkdownEntry[] } | null>(null);
   if (sides != null && outcome?.status === "ready" && !pending) shown.current = { sides, entries: outcome.entries };
-  const reason = text.status === "failed" ? text.error : outcome?.status === "unavailable" ? outcome.reason : null;
+  const reason =
+    text.status === "failed"
+      ? text.error
+      : outcome?.status === "unavailable"
+        ? outcome.reason
+        : view === "diff" && outcome?.status === "ready" && outcome.entries.every(({ change }) => change === "same")
+          ? "Only the markdown source changed, not how it reads."
+          : null;
   if (reason != null) {
     return (
       <>
@@ -90,7 +103,7 @@ export function MarkdownBody({
       sides={shown.current.sides}
       entries={shown.current.entries}
       comments={comments}
-      foldUnchanged={foldUnchanged}
+      view={view}
     />
   );
 }
@@ -119,16 +132,17 @@ function MarkdownEntries({
   sides,
   entries,
   comments,
-  foldUnchanged,
+  view,
 }: {
   theme: PluginTheme;
   block: FileBlock;
   sides: BlockSides;
   entries: readonly MarkdownEntry[];
   comments: FileComments;
-  foldUnchanged: boolean;
+  view: MarkdownView;
 }) {
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const palette = useSyntaxPalette(theme);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   const placement = useMemo(() => placeCards(fileCards(comments), entries, sides), [comments, entries, sides]);
   const scope = draftScope(block.file, comments.draft, [sides.original.lines, sides.modified.lines]);
@@ -145,12 +159,13 @@ function MarkdownEntries({
   };
   return (
     <View style={styles.document}>
-      {rowsOf(entries, foldUnchanged ? expanded : null, placement.byEntry).map((row) =>
+      {rowsOf(entries, view === "diff" ? expanded : null, placement.byEntry).map((row) =>
         row.kind === "entry" ? (
           <Fragment key={row.index}>
             <EntryView
               theme={theme}
               styles={styles}
+              palette={palette}
               entry={row.entry}
               covered={covered(row.entry)}
               onCompose={compose(row.entry)}
@@ -246,12 +261,14 @@ function rowsOf(
 function EntryView({
   theme,
   styles,
+  palette,
   entry,
   covered,
   onCompose,
 }: {
   theme: PluginTheme;
   styles: MarkdownStyles;
+  palette: SyntaxPalette | null;
   entry: MarkdownEntry;
   covered: boolean;
   /** Null for a block whose lines weren't found, which has nowhere to anchor a comment. */
@@ -277,7 +294,7 @@ function EntryView({
     <View style={[styles.item, { paddingLeft: list == null ? 0 : (list.depth - 1) * LIST_INDENT }]}>
       {list == null ? null : <Text style={styles.marker}>{list.marker ?? ""}</Text>}
       <View style={styles.fill}>
-        <BlockView theme={theme} styles={styles} block={block} />
+        <BlockView theme={theme} styles={styles} palette={palette} block={block} />
       </View>
     </View>
   );
@@ -337,7 +354,17 @@ function changeTint(
     : tint(theme.colors.statusDanger, strength === "block" ? alpha.delLine : alpha.delMark);
 }
 
-function BlockView({ theme, styles, block }: { theme: PluginTheme; styles: MarkdownStyles; block: MarkdownBlock }) {
+function BlockView({
+  theme,
+  styles,
+  palette,
+  block,
+}: {
+  theme: PluginTheme;
+  styles: MarkdownStyles;
+  palette: SyntaxPalette | null;
+  block: MarkdownBlock;
+}) {
   switch (block.kind) {
     case "heading": {
       const fontSize = HEADING_SIZES[Math.min(block.depth, HEADING_SIZES.length) - 1];
@@ -346,23 +373,23 @@ function BlockView({ theme, styles, block }: { theme: PluginTheme; styles: Markd
     }
     case "text":
       return <Runs theme={theme} style={styles.text} runs={block.runs} />;
-    case "code":
+    case "code": {
+      const code = <CodeView theme={theme} styles={styles} palette={palette} block={block} />;
+      if (block.language?.toLowerCase() !== "mermaid") return code;
+      const side = (dropped: "added" | "removed") =>
+        block.lines.flatMap(({ text, change }) => (change === dropped ? [] : [text])).join("\n");
       return (
-        <View style={styles.code}>
-          {block.lines.map((line, index) => (
-            <Text
-              key={index}
-              style={[
-                styles.codeLine,
-                { backgroundColor: changeTint(theme, line.change, "mark") },
-                line.change === "removed" && styles.struck,
-              ]}
-            >
-              {line.text === "" ? " " : line.text}
-            </Text>
-          ))}
+        <View style={styles.diagram}>
+          <MermaidDiagram
+            before={side("added")}
+            source={side("removed")}
+            theme={theme}
+            noteStyle={styles.note}
+            fallback={code}
+          />
         </View>
       );
+    }
     case "table":
       return (
         <View style={styles.table}>
@@ -393,6 +420,43 @@ function BlockView({ theme, styles, block }: { theme: PluginTheme; styles: Markd
     case "rule":
       return <View style={styles.rule} />;
   }
+}
+
+function CodeView({
+  theme,
+  styles,
+  palette,
+  block,
+}: {
+  theme: PluginTheme;
+  styles: MarkdownStyles;
+  palette: SyntaxPalette | null;
+  block: CodeBlock;
+}) {
+  return (
+    <View style={styles.code}>
+      {block.lines.map((line, index) => (
+        <Text
+          key={index}
+          style={[
+            styles.codeLine,
+            { backgroundColor: changeTint(theme, line.change, "mark") },
+            line.change === "removed" && styles.struck,
+          ]}
+        >
+          {line.text === ""
+            ? " "
+            : line.tokens == null || palette == null
+              ? line.text
+              : coloredTokens(line.tokens, line.text, palette).map((token, at) => (
+                  <Text key={at} style={token.color == null ? undefined : { color: token.color }}>
+                    {token.text}
+                  </Text>
+                ))}
+        </Text>
+      ))}
+    </View>
+  );
 }
 
 function Runs({
@@ -453,6 +517,8 @@ function createStyles(theme: PluginTheme) {
     tableRow: { flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
     cell: { flex: 1, minWidth: 0, paddingHorizontal: 8, paddingVertical: 4 },
     rule: { height: 1, backgroundColor: colors.border, marginVertical: 10 },
+    diagram: { gap: 6 },
+    note: { fontSize: 12, lineHeight: 18, color: colors.foregroundMuted },
     hidden: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 6 },
     hiddenLabel: { fontSize: 12, color: colors.foregroundMuted },
   });

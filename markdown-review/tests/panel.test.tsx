@@ -2,12 +2,20 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginFilePanelProps } from "@getpaseo/plugin/client";
 import { expect, jest, test } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react-native";
-import type { MarkdownEntry, MarkdownRun, ReviewState, StateChange } from "../kit/shared/protocol";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
+import { ZoomableImage } from "../kit/client/zoomable-image";
+import {
+  HIGHLIGHT_STYLES,
+  type MarkdownEntry,
+  type MarkdownRun,
+  type ReviewState,
+  type StateChange,
+} from "../kit/shared/protocol";
 import { applyStateChange } from "../kit/shared/review-state";
 import { MarkdownReviewPanel } from "../client/panel";
 
-const DOCUMENT = "# Plan\n\nShip it.\n";
+const DOCUMENT = "# Plan\n\nShip it.\n\n```ts\nconst a = 1;\n```\n\n```mermaid\ngraph TD\n```\n";
 
 const mockState: { current: ReviewState } = { current: { viewed: [], comments: [] } };
 const mockChanges: StateChange[] = [];
@@ -15,6 +23,8 @@ const mockHandlers: Record<string, (input: never) => Promise<unknown>> = {
   "markdown-review.document": async () => ({ root: "/repo", path: "docs/plan.md" }),
   "review.markdown": async () => ({ status: "ready", entries: ENTRIES }),
   "review.state": async () => mockState.current,
+  "review.palette": async () => ({ colors: { keyword: "#c678dd" } }),
+  "review.mermaid.draw": async () => ({ status: "ready", uri: "data:image/png;base64,", width: 40, height: 20, truncated: false }),
   "review.state-change": async ({ change }: { change: StateChange }) => {
     mockChanges.push(change);
     mockState.current = applyStateChange(mockState.current, change);
@@ -46,6 +56,15 @@ jest.mock("@getpaseo/plugin/client/ui", () => {
 const ENTRIES: MarkdownEntry[] = [
   entry({ kind: "heading", depth: 1, runs: [run("Plan")] }, 0),
   entry({ kind: "text", runs: [run("Ship it.")] }, 2),
+  entry(
+    {
+      kind: "code",
+      language: "ts",
+      lines: [{ text: "const a = 1;", change: null, tokens: [5, HIGHLIGHT_STYLES.indexOf("keyword"), 7, -1] }],
+    },
+    5,
+  ),
+  entry({ kind: "code", language: "mermaid", lines: [{ text: "graph TD", change: null, tokens: null }] }, 9),
 ];
 
 const theme = {
@@ -64,7 +83,7 @@ const theme = {
   },
 } as unknown as PluginTheme;
 
-test("a comment on a block of an unchanged document is saved against the document's line", async () => {
+function renderPanel(): void {
   const file = { path: "/repo/docs/plan.md", name: "plan.md" };
   const props = { file, theme, workspaceId: "w" } as unknown as PluginFilePanelProps;
   render(
@@ -72,6 +91,21 @@ test("a comment on a block of an unchanged document is saved against the documen
       <MarkdownReviewPanel {...props} />
     </QueryClientProvider>,
   );
+}
+
+test("code blocks are colored by their language, and mermaid blocks drawn as diagrams", async () => {
+  renderPanel();
+
+  const diagram = await waitFor(() => screen.UNSAFE_getByType(ZoomableImage));
+  const [frame] = diagram.findAll((node: typeof diagram) => typeof node.props.onLayout === "function");
+  fireEvent(frame, "layout", { nativeEvent: { layout: { width: 400, height: 300 } } });
+  expect(screen.getByLabelText("Diagram")).toBeTruthy();
+  expect(StyleSheet.flatten(screen.getByText("const").props.style)?.color).toEqual(expect.any(String));
+  expect(StyleSheet.flatten(screen.getByText(" a = 1;").props.style)?.color).toBeUndefined();
+});
+
+test("a comment on a block of an unchanged document is saved against the document's line", async () => {
+  renderPanel();
 
   fireEvent.press(await screen.findByText("Ship it."));
   expect(screen.queryByText(/unchanged block/)).toBeNull();

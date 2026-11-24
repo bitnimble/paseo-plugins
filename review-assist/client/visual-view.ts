@@ -1,5 +1,5 @@
 import type { DiffFile } from "../kit/shared/diff";
-import { MERMAID_DEFAULT_DISTANCE } from "../shared/protocol";
+import { MERMAID_DEFAULT_DISTANCE } from "../kit/shared/protocol";
 
 export type VisualView =
   | { readonly kind: "mermaid"; readonly visual: boolean; readonly distance: number }

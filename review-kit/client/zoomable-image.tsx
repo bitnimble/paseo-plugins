@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type GestureResponderEvent, Image, type NativeTouchEvent, PanResponder, Text, View } from "react-native";
-import { IconButton } from "../kit/client/controls";
+import { IconButton } from "./controls";
 
 const MAX_SCALE = 3;
 const MAX_FRAME_HEIGHT = 480;

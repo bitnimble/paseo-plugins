@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import type { MermaidOutcome } from "../../shared/protocol";
-import type { MermaidRequest, MermaidResponse } from "./messages";
+import type { MermaidJob, MermaidRequest, MermaidResponse } from "./messages";
 import script from "./worker.js.txt";
 
 const IDLE_MS = 120_000;
@@ -19,7 +19,7 @@ export class MermaidRenderer {
     private readonly timeoutMs = TIMEOUT_MS,
   ) {}
 
-  draw(input: Omit<MermaidRequest, "id">): Promise<MermaidOutcome> {
+  draw(input: MermaidJob): Promise<MermaidOutcome> {
     const worker = this.start();
     const id = this.nextId++;
     clearTimeout(this.idle);
@@ -31,7 +31,7 @@ export class MermaidRenderer {
   }
 
   dispose(): void {
-    this.stop("The review plugin stopped.");
+    this.stop("The plugin stopped.");
   }
 
   private start(): Worker {

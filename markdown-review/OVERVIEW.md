@@ -5,7 +5,9 @@ agent in the workspace.
 ## Using it
 
 Open a `.md` or `.markdown` file, then pick **Open with → Markdown review**. The document renders
-with headings, lists, quotes, code blocks and tables. Hover a block and press **+** to comment on the
+with headings, lists, quotes, code blocks and tables. Code blocks are colored by their fence's
+language where Paseo's highlighter knows it, and a `mermaid` block is drawn as its diagram: any kind
+mermaid draws, from flowcharts and sequence diagrams to mindmaps, Gantt charts and pies. Hover a block and press **+** to comment on the
 lines it is written on, and shift-click another block's **+** to widen the comment to it; on a
 touchscreen, tap a block and long-press another. Ctrl+Enter, or Cmd+Enter on a Mac, saves the
 comment you are writing. The view follows the file as it changes on disk.

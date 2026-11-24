@@ -4,7 +4,9 @@ import { View } from "react-native";
 import type { CommentDraft } from "../kit/client/comments";
 import { CentreAboveKeyboard, useCentreAboveKeyboard } from "../kit/client/keyboard";
 import { CODE_SURFACE } from "../kit/client/palette";
+import { useSyntaxPalette } from "../kit/client/syntax-colors";
 import { type CommentStore, useCommentDrafts } from "../kit/client/use-comment-drafts";
+import { ScrollLock } from "../kit/client/zoomable-image";
 import { type FileBlock, blockChanges, blockLines } from "../kit/shared/blocks";
 import type { DraftComment } from "../kit/shared/protocol";
 import { CAPPED_CHANGES, MORE_CHANGES_STEP } from "../kit/shared/sides";
@@ -13,11 +15,9 @@ import { CODE_LINE_HEIGHT, FILE_HEADER_HEIGHT, createStyles } from "./diff-style
 import { FileBlockView } from "./file-block";
 import type { CodeSource } from "./monaco/review-monaco";
 import { SettledWidth } from "./settled-width";
-import { usePalette } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
 import { installStickyStyle, isMonacoSupported } from "./web";
 import { ScrollList, type ScrollListHandle, type WindowedRow } from "./windowed-rows";
-import { ScrollLock } from "./zoomable-image";
 
 const COLLAPSE_OVER_CHANGES = 800;
 const NO_COMMENTS: readonly DraftComment[] = [];
@@ -86,7 +86,7 @@ export function DiffList(props: DiffListProps) {
   const [folding, setFolding] = useState<Folding>(() => ({ base: fold?.collapsed ?? null, overrides: new Map() }));
   const [changeLimits, setChangeLimits] = useState<ReadonlyMap<string, number>>(new Map());
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const palette = usePalette(theme);
+  const palette = useSyntaxPalette(theme);
   const [overflowHost, setOverflowHost] = useState<object | null>(null);
   const { draft, actions } = useCommentDrafts(props.comments);
   const frame = useRef<View>(null);

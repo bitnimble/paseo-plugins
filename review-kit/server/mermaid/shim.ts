@@ -2,8 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type SvgElement, config, createHTMLWindow } from "svgdom";
-import font from "../../node_modules/svgdom/fonts/OpenSans-Regular.ttf";
-import { Arc } from "../../node_modules/svgdom/src/utils/pathUtils.js";
+// The plugin's node_modules, through its kit/ link: svgdom's exports hide these files from bare imports.
+import font from "../../../node_modules/svgdom/fonts/OpenSans-Regular.ttf";
+import { Arc } from "../../../node_modules/svgdom/src/utils/pathUtils.js";
 
 export const FONT_FAMILY = "Open Sans";
 export const FONT_SIZE = 16;
@@ -12,9 +13,11 @@ const WINDOW_GLOBALS = ["Error", "Math", "Date", "Array", "Object", "JSON", "Pro
 const POSITIONS = new Set(["x", "y", "dx", "dy"]);
 const ELEMENT_NODE = 1;
 const ANCHOR_SHIFTS: Readonly<Record<string, number>> = { start: 0, middle: 0.5, end: 1 };
+const AVERAGE_GLYPH_WIDTH = 0.6;
+const POSITION = { disconnected: 1, preceding: 2, following: 4, contains: 8, containedBy: 16 } as const;
 
 // svgdom only measures text with fonts it reads from disk.
-const fontDir = join(tmpdir(), "review-assist-fonts");
+const fontDir = join(tmpdir(), "paseo-review-kit-fonts");
 mkdirSync(fontDir, { recursive: true });
 writeFileSync(join(fontDir, FONT_FILE), font);
 config.setFontDir(fontDir).setFontFamilyMappings({ "sans-serif": FONT_FILE, [FONT_FAMILY]: FONT_FILE }).preloadFonts();
@@ -68,6 +71,34 @@ window.SVGGraphicsElement.prototype.getBBox = function () {
     measuring = false;
   }
 };
+Object.defineProperties(window.Node.prototype, {
+  // A browser's node stringifies as `{}`; svgdom's own properties loop back through `ownerDocument`.
+  toJSON: { value: () => ({}) },
+  parentElement: {
+    get(this: SvgElement): SvgElement | null {
+      return this.parentNode?.nodeType === ELEMENT_NODE ? this.parentNode : null;
+    },
+  },
+  compareDocumentPosition: {
+    value(this: SvgElement, other: SvgElement): number {
+      return documentPosition(this, other);
+    },
+  },
+});
+// Cytoscape's canvas renderer, laying out mindmaps and architecture diagrams for mermaid, sizes itself
+// to its hidden container, which svgdom can't measure, and measures label text on a canvas.
+Object.defineProperties(window.HTMLElement.prototype, {
+  getBoundingClientRect: { value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }) },
+  clientWidth: { value: 0 },
+  clientHeight: { value: 0 },
+  getContext: { value: canvasContext },
+});
+const { getComputedStyle } = window;
+window.getComputedStyle = (element) => {
+  const style = getComputedStyle(element);
+  // svgdom computes no box model: a browser's unset padding is "0px", which cytoscape subtracts from its size.
+  return { ...style, getPropertyValue: (name) => style.getPropertyValue(name) ?? (name.startsWith("padding") ? "0px" : "") };
+};
 Object.assign(globalThis, {
   window,
   document: window.document,
@@ -103,6 +134,39 @@ function inFlowchartNodeLabel(text: SvgElement): boolean {
     }
   }
   return false;
+}
+
+function documentPosition(node: SvgElement, other: SvgElement): number {
+  if (node === other) return 0;
+  const mine = lineage(node);
+  const theirs = lineage(other);
+  if (mine[0] !== theirs[0]) return POSITION.disconnected | POSITION.following;
+  let shared = 0;
+  while (shared < mine.length && shared < theirs.length && mine[shared] === theirs[shared]) shared++;
+  if (shared === mine.length) return POSITION.containedBy | POSITION.following;
+  if (shared === theirs.length) return POSITION.contains | POSITION.preceding;
+  const siblings = mine[shared - 1].childNodes;
+  return siblings.indexOf(theirs[shared]) < siblings.indexOf(mine[shared]) ? POSITION.preceding : POSITION.following;
+}
+
+/** Measures text by an average glyph width, and draws nothing: nothing reads the canvas back. */
+function canvasContext(): object {
+  const context: Record<string | symbol, unknown> = {
+    font: `${FONT_SIZE}px ${FONT_FAMILY}`,
+    measureText: (text: string) => ({ width: text.length * fontSizeOf(String(context.font)) * AVERAGE_GLYPH_WIDTH }),
+  };
+  return new Proxy(context, { get: (target, key) => (key in target ? target[key] : () => undefined) });
+}
+
+function fontSizeOf(font: string): number {
+  return Number(/([\d.]+)px/.exec(font)?.[1] ?? FONT_SIZE);
+}
+
+/** From the root down to `node`. */
+function lineage(node: SvgElement): SvgElement[] {
+  const chain: SvgElement[] = [];
+  for (let at: SvgElement | null = node; at != null; at = at.parentNode) chain.unshift(at);
+  return chain;
 }
 
 export { font };

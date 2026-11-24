@@ -48,6 +48,7 @@ declare module "svgdom" {
     readonly nodeName: string;
     readonly nodeType: number;
     readonly parentNode: SvgElement | null;
+    readonly childNodes: readonly SvgElement[];
     readonly textContent: string | null;
     getAttribute(name: string): string | null;
     setAttribute(name: string, value: string): void;
@@ -81,6 +82,9 @@ declare module "svgdom" {
       };
     };
     readonly SVGGraphicsElement: { prototype: { getBBox(this: SvgElement): SvgBox } };
+    getComputedStyle(element: SvgElement): { getPropertyValue(name: string): string | null };
+    readonly Node: { prototype: object };
+    readonly HTMLElement: { prototype: object };
   }
 
   export const config: FontConfig;

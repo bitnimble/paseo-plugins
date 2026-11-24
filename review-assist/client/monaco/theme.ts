@@ -1,12 +1,10 @@
 import type { HighlightStyle } from "@getpaseo/highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { IN_SCOPE_ALPHA, diffAlpha, hexTint, isDark } from "../../kit/client/palette";
+import type { SyntaxPalette } from "../../kit/client/syntax-colors";
 import type { MonacoThemeData } from "./api";
 
 export const THEME_NAME = "paseo-review";
-
-/** Colors by `HighlightStyle`, from the daemon's highlighter. */
-export type SyntaxPalette = Readonly<Record<string, string>>;
 
 /** Monarch token prefixes to the roles Paseo's highlighter colors; the most specific prefix wins. */
 const TOKEN_ROLES: readonly (readonly [string, HighlightStyle])[] = [

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import { type Diagram, type DiagramNode, diffDiagrams, diffRows, diffSource } from "../server/mermaid/diagram";
-import { MermaidRenderer } from "../server/mermaid/renderer";
-import type { MermaidPalette } from "../shared/protocol";
+import { type Diagram, type DiagramNode, diffDiagrams, diffRows, diffSource } from "../kit/server/mermaid/diagram";
+import { MermaidRenderer } from "../kit/server/mermaid/renderer";
+import type { MermaidPalette } from "../kit/shared/protocol";
 
 const node = (id: string, fields: Partial<DiagramNode> = {}): DiagramNode => ({
   id,
@@ -271,7 +271,7 @@ describe("MermaidRenderer", () => {
     changed: "#ffaa00",
   };
   const draw = (older: string, newer: string, format: "svg" | "png" = "svg") =>
-    renderer.draw({ before: older, after: newer, format, palette, distance: 2 });
+    renderer.draw({ kind: "diff", before: older, after: newer, format, palette, distance: 2 });
   const svgOf = (uri: string) => decodeURIComponent(uri.slice(uri.indexOf(",") + 1));
   const nodeStyles = (svg: string, id: string) => {
     const start = svg.search(new RegExp(`<g[^>]*id="[^"]*-(?:flowchart|classId)-${id}-\\d+"`));
@@ -417,6 +417,40 @@ describe("MermaidRenderer", () => {
     if (outcome.status !== "ready") return;
     assert.ok(outcome.height < 160, `drawn ${outcome.height} tall`);
   });
+
+  const DIAGRAMS: Readonly<Record<string, string>> = {
+    flowchart: "flowchart LR\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Done]",
+    sequence: "sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Hi\n  Note over Alice,Bob: done",
+    class: "classDiagram\n  Animal <|-- Duck\n  class Duck {\n    +swim()\n  }",
+    state: "stateDiagram-v2\n  [*] --> Still\n  Still --> Moving\n  Moving --> [*]",
+    er: "erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ LINE : contains",
+    journey: "journey\n  title Day\n  section Work\n    Code: 5: Me",
+    gantt: "gantt\n  dateFormat YYYY-MM-DD\n  title Plan\n  section A\n  Build :a1, 2024-01-01, 3d\n  Ship :after a1, 2d",
+    pie: 'pie title Pets\n  "Dogs" : 386\n  "Cats" : 85',
+    quadrant: "quadrantChart\n  title Reach\n  x-axis Low --> High\n  y-axis Low --> High\n  A: [0.3, 0.6]",
+    requirement: "requirementDiagram\n  requirement r {\n    id: 1\n    text: t\n  }",
+    gitGraph: "gitGraph\n  commit\n  branch dev\n  commit\n  checkout main\n  merge dev",
+    mindmap: "mindmap\n  root((Plan))\n    Build\n    Ship",
+    timeline: "timeline\n  title History\n  2020 : Start\n  2021 : Grow",
+    sankey: "sankey-beta\n  A,B,10\n  B,C,5",
+    xychart: 'xychart-beta\n  x-axis [a, b, c]\n  y-axis "N" 0 --> 10\n  bar [3, 5, 7]',
+    block: "block-beta\n  columns 2\n  A B",
+    packet: 'packet-beta\n  0-15: "Source"\n  16-31: "Dest"',
+    architecture: "architecture-beta\n  service db(database)[DB]\n  service api(server)[API]\n  db:L -- R:api",
+    kanban: "kanban\n  Todo\n    [Write]\n  Done\n    [Plan]",
+  };
+
+  for (const [kind, source] of Object.entries(DIAGRAMS)) {
+    test(`draws a ${kind} diagram as written`, async () => {
+      const outcome = await renderer.draw({ kind: "draw", source, format: "svg", palette });
+      assert.equal(outcome.status, "ready", outcome.status === "unavailable" ? outcome.reason : "");
+    });
+  }
+
+  test("says why a diagram as written doesn't draw", async () => {
+    const outcome = await renderer.draw({ kind: "draw", source: "flowchart LR\n  A -->", format: "svg", palette });
+    assert.equal(outcome.status === "unavailable" && outcome.reason.split(":")[0], "The diagram doesn't parse");
+  });
 });
 
 describe("MermaidRenderer's worker", () => {
@@ -442,7 +476,7 @@ describe("MermaidRenderer's worker", () => {
     removed: "#ff0000",
     changed: "#ffaa00",
   };
-  const request = (before: string) => ({ before, after: "", format: "svg" as const, palette, distance: 1 });
+  const request = (before: string) => ({ kind: "diff" as const, before, after: "", format: "svg" as const, palette, distance: 1 });
 
   test("reports a crash, then starts a new worker for the next diagram", async () => {
     const renderer = new MermaidRenderer(fakeWorker);

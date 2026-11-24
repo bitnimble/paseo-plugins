@@ -19,7 +19,7 @@
   "scripts": {
     "postinstall": "npm run bundle-monaco && npm run build-mermaid && npm run build-client && npm run build-server",
     "bundle-monaco": "node scripts/bundle-monaco.mjs",
-    "build-mermaid": "node scripts/build-mermaid.mjs",
+    "build-mermaid": "node kit/scripts/build.mjs mermaid",
     "build-client": "node kit/scripts/build.mjs client",
     "build-server": "node kit/scripts/build.mjs server",
     "typecheck": "tsc --noEmit",

@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { ReactNode } from "react";
 import { Modal, SafeAreaView, StatusBar, View } from "react-native";
-import { ZoomableImage } from "./zoomable-image";
+import { ZoomableImage } from "../kit/client/zoomable-image";
 
 export function ImageLightbox({
   theme,

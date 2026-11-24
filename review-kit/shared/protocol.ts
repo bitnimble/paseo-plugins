@@ -1,3 +1,4 @@
+import type { HighlightStyle } from "@getpaseo/highlight";
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import type { Failed } from "./errors";
@@ -68,6 +69,106 @@ export const updateRpc = defineRpc({
   output: z.object({}),
 });
 
+export const HIGHLIGHT_STYLES = [
+  "keyword",
+  "comment",
+  "string",
+  "number",
+  "literal",
+  "function",
+  "definition",
+  "class",
+  "type",
+  "tag",
+  "attribute",
+  "property",
+  "variable",
+  "operator",
+  "punctuation",
+  "regexp",
+  "escape",
+  "meta",
+  "heading",
+  "link",
+] as const satisfies readonly HighlightStyle[];
+
+/** `[length, style]` pairs; the style indexes `HIGHLIGHT_STYLES`, or is -1 for plain text. */
+const tokensSchema = z.array(z.number().int());
+/** One `tokens` per line. */
+export const lineTokensSchema = z.array(tokensSchema);
+export type LineTokens = z.infer<typeof lineTokensSchema>;
+
+const colorSchemeSchema = z.enum(["dark", "light"]);
+
+export const paletteRpc = defineRpc({
+  name: "review.palette",
+  input: z.object({ scheme: colorSchemeSchema }),
+  output: z.object({ colors: z.record(z.string(), z.string()) }),
+});
+
+const hexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i);
+
+const mermaidPaletteSchema = z.object({
+  dark: z.boolean(),
+  background: hexColorSchema,
+  surface: hexColorSchema,
+  foreground: hexColorSchema,
+  muted: hexColorSchema,
+  border: hexColorSchema,
+  added: hexColorSchema,
+  removed: hexColorSchema,
+  changed: hexColorSchema,
+});
+export type MermaidPalette = z.infer<typeof mermaidPaletteSchema>;
+
+const MAX_MERMAID_CHARS = 200_000;
+
+/** How many links from a change a diagram's diff keeps, until its reader asks for more or fewer. */
+export const MERMAID_DEFAULT_DISTANCE = 1;
+export const MERMAID_MAX_DISTANCE = 9;
+
+const mermaidOutcomeSchema = z.discriminatedUnion("status", [
+  /** `width` and `height` in points; a PNG has twice the pixels. `truncated` when nodes were left out. */
+  z.object({
+    status: z.literal("ready"),
+    uri: z.string(),
+    width: z.number(),
+    height: z.number(),
+    truncated: z.boolean(),
+  }),
+  /** Why there is no picture, such as a kind it does not diff or a parse error. */
+  z.object({ status: z.literal("unavailable"), reason: z.string() }),
+]);
+export type MermaidOutcome = z.infer<typeof mermaidOutcomeSchema>;
+
+const mermaidImageFields = { format: z.enum(["svg", "png"]), palette: mermaidPaletteSchema };
+
+const mermaidDiffSchema = z.object({
+  before: z.string().max(MAX_MERMAID_CHARS),
+  after: z.string().max(MAX_MERMAID_CHARS),
+  ...mermaidImageFields,
+  /** Links from a change that nodes are kept within. */
+  distance: z.number().int().min(1).max(MERMAID_MAX_DISTANCE),
+});
+export type MermaidDiff = z.infer<typeof mermaidDiffSchema>;
+
+/** Draws `before` laid over `after`; SVG for the web, PNG where images can't be SVG. */
+export const mermaidRpc = definePackedRpc({
+  name: "review.mermaid",
+  input: mermaidDiffSchema,
+  output: mermaidOutcomeSchema,
+});
+
+const mermaidDrawSchema = z.object({ source: z.string().max(MAX_MERMAID_CHARS), ...mermaidImageFields });
+export type MermaidDraw = z.infer<typeof mermaidDrawSchema>;
+
+/** Draws any kind of diagram as written. */
+export const mermaidDrawRpc = definePackedRpc({
+  name: "review.mermaid.draw",
+  input: mermaidDrawSchema,
+  output: mermaidOutcomeSchema,
+});
+
 const MAX_MARKDOWN_CHARS = 500_000;
 
 const markdownChangeSchema = z.enum(["added", "removed"]);
@@ -90,7 +191,10 @@ const markdownBlockSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), runs: z.array(markdownRunSchema) }),
   z.object({
     kind: z.literal("code"),
-    lines: z.array(z.object({ text: z.string(), change: markdownChangeSchema.nullable() })),
+    /** The fence's language, as written. */
+    language: z.string().nullable(),
+    /** `tokens` null where the highlighter doesn't know the language. */
+    lines: z.array(z.object({ text: z.string(), change: markdownChangeSchema.nullable(), tokens: tokensSchema.nullable() })),
   }),
   z.object({
     kind: z.literal("table"),

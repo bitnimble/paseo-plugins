@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Image } from "react-native";
 import { BinaryBody } from "../client/binary-view";
 import type { CodeSource } from "../client/monaco/review-monaco";
-import { ZoomableImage } from "../client/zoomable-image";
+import { ZoomableImage } from "../kit/client/zoomable-image";
 import type { DiffFile } from "../kit/shared/diff";
 
 jest.mock("@getpaseo/plugin/client/ui", () => ({ Icon: () => null }));

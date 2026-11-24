@@ -34,7 +34,7 @@ import type { ViewOptions } from "../shared/settings";
 import { syntaxLineChanges } from "../shared/syntax-lines";
 import { CODE_FONT_SIZE, CODE_LINE_HEIGHT, type DiffStyles } from "./diff-styles";
 import type { CodeSource } from "./monaco/review-monaco";
-import type { SyntaxPalette } from "./monaco/theme";
+import type { SyntaxPalette } from "../kit/client/syntax-colors";
 import { LanguageFeatures, type PeekTarget, PeekView } from "./peek";
 import { type CodePiece, type FileSyntax, codePieces, expandTabs, lineTokens, wordAt } from "./syntax";
 import { useSyntax, useSyntaxDiff } from "./use-code";

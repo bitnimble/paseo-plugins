@@ -16,10 +16,8 @@ import {
   highlightRpc,
   leaseRpc,
   lspRpc,
-  mermaidRpc,
   modeRpc,
   monacoRpc,
-  paletteRpc,
   peekRpc,
   setModeRpc,
   setTrustRpc,
@@ -29,10 +27,9 @@ import {
 import { reviewSettings } from "../shared/settings";
 import { Difftastic } from "./difftastic";
 import { listBranches, previewBlob, readDiff } from "./git";
-import { highlightSides, syntaxPalette } from "./highlight";
+import { highlightSides } from "./highlight";
 import { peek } from "./lsp/peek";
 import { LanguageServers } from "./lsp/pool";
-import { MermaidRenderer } from "./mermaid/renderer";
 import { monacoChunk } from "./monaco-assets";
 import { ReviewModes } from "./review-modes";
 import { GuideStore } from "./store";
@@ -54,7 +51,6 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   const languageServers = new LanguageServers(trees);
   const trust = new ProjectTrust(cache);
   const projectOfServedRoot = new Map<string, string>();
-  const mermaid = new MermaidRenderer();
   // Roots arrive from clients; only real repository top levels are served.
   const roots = new Set<string>();
   const rootRefusal = async (root: string): Promise<Failed | null> => {
@@ -91,7 +87,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   });
   server.handle(guideJobRpc, (input) => ({ job: store.job(input) }));
   server.handle(generateRpc, (input, { paseo }) => ({ job: store.generate(input, paseo) }));
-  handleReviews(server, PLUGIN_ID, repoRoot);
+  const stopReviews = handleReviews(server, PLUGIN_ID, repoRoot);
   handlePacked(server, fileRpc, async ({ root, tree, path }) =>
     (await rootRefusal(root)) ??
     (tree == null ? languageServers.readFile(root, path) : trees.read(root, tree, path)).then(
@@ -109,9 +105,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     highlightRpc,
     async (input) => (await rootRefusal(input.root)) ?? highlightSides(trees, input).catch(failed),
   );
-  server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
   handlePacked(server, monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
-  handlePacked(server, mermaidRpc, (input) => mermaid.draw(input));
   server.handle(trustRpc, async ({ projectId }) => ({ trust: await trust.read(projectId) }));
   server.handle(setTrustRpc, async ({ projectId, trusted }) => {
     const decided = await trust.decide(projectId, trusted);
@@ -145,7 +139,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
     return {};
   });
   return async () => {
-    mermaid.dispose();
+    stopReviews();
     await languageServers.dispose();
   };
 }

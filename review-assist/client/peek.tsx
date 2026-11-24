@@ -10,8 +10,8 @@ import type { LspPosition } from "../shared/lsp";
 import { type PeekLocation, type PeekOutcome, peekRpc } from "../shared/protocol";
 import { CODE_FONT_SIZE, CODE_LINE_HEIGHT } from "./diff-styles";
 import type { CodeSource } from "./monaco/review-monaco";
-import type { SyntaxPalette } from "./monaco/theme";
-import { codePieces, coloredTokens, expandTabs } from "./syntax";
+import { type SyntaxPalette, coloredTokens } from "../kit/client/syntax-colors";
+import { codePieces, expandTabs } from "./syntax";
 
 /** Set once the project is trusted, for language features against its language servers. */
 export const LanguageFeatures = createContext<{ readonly projectId: string } | null>(null);

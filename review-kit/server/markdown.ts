@@ -2,6 +2,7 @@ import { type MarkedToken, type Token, type Tokens, lexer } from "marked";
 import { MIN_KEPT_SHARE, WORD_TOKEN, commonPairs } from "../shared/display";
 import { messageOf } from "../shared/errors";
 import type { MarkdownBlock, MarkdownEntry, MarkdownOutcome, MarkdownRun } from "../shared/protocol";
+import { highlightFenced } from "./highlight";
 
 type Placed = Omit<MarkdownEntry, "change" | "lines">;
 type Context = Omit<Placed, "block">;
@@ -55,9 +56,6 @@ export function markdownDiff(before: string, after: string): MarkdownOutcome {
     // The lexer recurses per level of nesting, so a deep enough quote or list overflows the stack.
     return { status: "unavailable", reason: messageOf(error) };
   }
-  if (entries.every(({ change }) => change === "same")) {
-    return { status: "unavailable", reason: "Only the markdown source changed, not how it reads." };
-  }
   return { status: "ready", entries };
 }
 
@@ -65,7 +63,7 @@ function parse(source: string): Located[] {
   const parsed: Parsed[] = [];
   const front = FRONT_MATTER.exec(source)?.[0] ?? "";
   if (front !== "") {
-    const placed: Placed = { quote: 0, list: null, block: codeBlock(front.trimEnd()) };
+    const placed: Placed = { quote: 0, list: null, block: codeBlock(front.trimEnd(), "yaml") };
     parsed.push({ placed, raw: front });
   }
   // Blank lines in its place keep the rest of the document on its own line numbers.
@@ -93,10 +91,10 @@ function addBlocks(tokens: readonly MarkedToken[], context: Context, out: Parsed
         add({ kind: "text", runs: token.tokens == null ? textRuns(token.text, PLAIN) : runsOf(token.tokens) });
         break;
       case "code":
-        add(codeBlock(token.text));
+        add(codeBlock(token.text, token.lang?.trim().split(/\s+/)[0] || null));
         break;
       case "html":
-        if (!/^\s*<!--[\s\S]*-->\s*$/.test(token.text)) add(codeBlock(token.text.trimEnd()));
+        if (!/^\s*<!--[\s\S]*-->\s*$/.test(token.text)) add(codeBlock(token.text.trimEnd(), "html"));
         break;
       case "hr":
         add({ kind: "rule" });
@@ -141,8 +139,13 @@ function tableRow(cells: readonly Tokens.TableCell[], header: boolean): TableRow
   return { header, cells: cells.map((cell) => runsOf(cell.tokens)), change: null };
 }
 
-function codeBlock(text: string): MarkdownBlock {
-  return { kind: "code", lines: text.split("\n").map((line) => ({ text: line, change: null })) };
+function codeBlock(text: string, language: string | null): MarkdownBlock {
+  const tokens = highlightFenced(text, language);
+  return {
+    kind: "code",
+    language,
+    lines: text.split("\n").map((line, index) => ({ text: line, change: null, tokens: tokens?.[index] ?? null })),
+  };
 }
 
 function locate(lines: readonly string[], parsed: readonly Parsed[]): Located[] {

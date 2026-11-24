@@ -1,7 +1,8 @@
 import { isAbsolute, join, relative, sep } from "node:path";
+import { highlightFile } from "../../kit/server/highlight";
+import type { LineTokens } from "../../kit/shared/protocol";
 import { type LspPosition, type LspRange, toHoverMarkdown, toLocations } from "../../shared/lsp";
-import type { LineTokens, PeekLocation, PeekOutcome } from "../../shared/protocol";
-import { highlightFile } from "../highlight";
+import type { PeekLocation, PeekOutcome } from "../../shared/protocol";
 import type { TreeFiles } from "../trees";
 import { type LanguageServers, filePathOf } from "./pool";
 

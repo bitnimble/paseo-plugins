@@ -1,10 +1,8 @@
-import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type { FileText } from "../kit/client/file-text";
 import { usePackedRpc } from "../kit/client/packed";
-import { isDark, legibleSyntax } from "../kit/client/palette";
 import type { DiffFile } from "../kit/shared/diff";
 import { messageOf } from "../kit/shared/errors";
 import { hashText } from "../kit/shared/hash";
@@ -17,11 +15,9 @@ import {
   leaseRpc,
   lspRpc,
   monacoRpc,
-  paletteRpc,
   syntaxDiffRpc,
 } from "../shared/protocol";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
-import type { SyntaxPalette } from "./monaco/theme";
 import type { FileSyntax } from "./syntax";
 import { isMonacoSupported } from "./web";
 
@@ -80,18 +76,6 @@ export function useSyntaxDiff(path: string, original: string, modified: string, 
   if (!enabled) return null;
   if (query.data?.status === "ready") return query.data.diff;
   return query.isPending ? undefined : null;
-}
-
-export function usePalette(theme: PluginTheme): SyntaxPalette | null {
-  const read = useRpc(paletteRpc);
-  const scheme = isDark(theme) ? "dark" : "light";
-  const query = useQuery({
-    queryKey: ["review-palette", scheme],
-    queryFn: () => read({ scheme }),
-    staleTime: Infinity,
-  });
-  const colors = query.data?.colors;
-  return useMemo(() => (colors == null ? null : legibleSyntax(theme, colors)), [theme, colors]);
 }
 
 /** Connects Monaco to the daemon and starts loading it; `features` adds language features for its root's files. */

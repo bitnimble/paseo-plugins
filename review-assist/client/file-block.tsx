@@ -5,7 +5,9 @@ import { Animated, Pressable, Text, View } from "react-native";
 import type { CommentDraft } from "../kit/client/comments";
 import { ChangeStats, FileLabel, Tabs } from "../kit/client/controls";
 import { MarkdownBody } from "../kit/client/markdown-view";
+import { MermaidBody } from "../kit/client/mermaid-view";
 import { STICKY } from "../kit/client/palette";
+import type { SyntaxPalette } from "../kit/client/syntax-colors";
 import { type CommentActions, fileComments } from "../kit/client/use-comment-drafts";
 import { type FileBlock, blockCounts } from "../kit/shared/blocks";
 import { type DiffFile, type DiffLine, isChange } from "../kit/shared/diff";
@@ -14,10 +16,8 @@ import { blockHunks, changesThrough, shownChangeCount } from "../kit/shared/side
 import type { ViewOptions } from "../shared/settings";
 import { BinaryBody, LfsBody } from "./binary-view";
 import { type DiffStyles, FILE_HEADER_HEIGHT } from "./diff-styles";
-import { MermaidBody } from "./mermaid-view";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
-import type { SyntaxPalette } from "./monaco/theme";
 import { NativeBody } from "./native-diff";
 import { useFileText } from "./use-code";
 import type { VisualView } from "./visual-view";
@@ -201,7 +201,7 @@ export const FileBlockView = memo(function FileBlockView({
           text={text}
           theme={theme}
           comments={commentsHere}
-          foldUnchanged
+          view="diff"
           noteStyle={styles.note}
           fallback={textBody()}
         />
