@@ -2,9 +2,12 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
-import type { DiffFile } from "../shared/diff";
-import { messageOf } from "../shared/errors";
-import { hashText } from "../shared/hash";
+import type { FileText } from "../kit/client/file-text";
+import { usePackedRpc } from "../kit/client/packed";
+import { isDark, legibleSyntax } from "../kit/client/palette";
+import type { DiffFile } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
+import { hashText } from "../kit/shared/hash";
 import {
   type DifftasticStatus,
   type SyntaxDiff,
@@ -19,18 +22,10 @@ import {
 } from "../shared/protocol";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { usePackedRpc } from "./packed";
-import { isDark, legibleSyntax } from "./palette";
 import type { FileSyntax } from "./syntax";
 import { isMonacoSupported } from "./web";
 
 const LEASE_REFRESH_MS = 30_000;
-
-export type FileText =
-  | { readonly status: "loading" }
-  /** `previous` while the file's last text stands in for its new one. */
-  | { readonly status: "ready"; readonly text: string; readonly previous: boolean }
-  | { readonly status: "failed"; readonly error: string };
 
 /** The file as the whole diff leaves it. */
 export function useFileText(source: CodeSource, file: DiffFile, enabled: boolean): FileText {

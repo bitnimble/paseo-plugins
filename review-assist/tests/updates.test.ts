@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resultOf, statusOf } from "../server/updates";
+import { resultOf, statusOf } from "../kit/server/updates";
 
 const git = (outcome: string, extra: object = {}) =>
   JSON.stringify([

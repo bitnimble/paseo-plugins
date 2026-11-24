@@ -1,10 +1,10 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { messageOf } from "../../shared/errors";
+import { messageOf } from "../../kit/shared/errors";
 import type { TreeFiles } from "../trees";
-import { LspSession } from "./session";
 import { type ServerChoice, serverFor } from "./servers";
+import { LspSession } from "./session";
 
 const LEASE_TIMEOUT_MS = 90_000;
 const SWEEP_INTERVAL_MS = 30_000;

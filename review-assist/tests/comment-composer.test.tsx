@@ -1,8 +1,8 @@
 import { expect, jest, test } from "@jest/globals";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { CommentSlot, type FileComments } from "../client/comments";
-import { parseDiff } from "../shared/diff";
+import { CommentSlot, type FileComments } from "../kit/client/comments";
+import { parseDiff } from "../kit/shared/diff";
 
 jest.mock("@getpaseo/plugin/client/ui", () => ({
   Icon: () => null,

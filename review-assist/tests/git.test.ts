@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, unlinkSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { parseDiff, serializeDiff } from "../kit/shared/diff";
+import { DEFAULT_BRANCH_MODE, UNCOMMITTED_MODE } from "../kit/shared/protocol";
 import { listBranches, previewBlob, readDiff } from "../server/git";
-import { parseDiff, serializeDiff } from "../shared/diff";
-import { DEFAULT_BRANCH_MODE, UNCOMMITTED_MODE } from "../shared/protocol";
 import { freshRepo, gitIn, removeScratch, scratchDirectory, writeIn } from "./repo";
 
 let repo = "";

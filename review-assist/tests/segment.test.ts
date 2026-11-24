@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
+import { parseDiff } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
+import type { ContextLine, PromptContext } from "../server/prompt-context";
 import {
   ModelFallback,
   PROMPT_BUDGET_CHARS,
@@ -12,9 +15,6 @@ import {
   proposeSections,
   segmentPrompt,
 } from "../server/segment";
-import type { ContextLine, PromptContext } from "../server/prompt-context";
-import { parseDiff } from "../shared/diff";
-import { messageOf } from "../shared/errors";
 
 const RAW = `diff --git a/src/app.ts b/src/app.ts
 index 1111111..2222222 100644

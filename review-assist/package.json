@@ -13,17 +13,19 @@
     "server/",
     "shared/",
     "scripts/",
+    "kit/",
     "package-lock.json"
   ],
   "scripts": {
-    "postinstall": "npm run bundle-monaco && npm run build-mermaid && npm run build-client",
+    "postinstall": "npm run bundle-monaco && npm run build-mermaid && npm run build-client && npm run build-server",
     "bundle-monaco": "node scripts/bundle-monaco.mjs",
     "build-mermaid": "node scripts/build-mermaid.mjs",
-    "build-client": "node scripts/build-client.mjs",
+    "build-client": "node kit/scripts/build.mjs client",
+    "build-server": "node kit/scripts/build.mjs server",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --no-warnings=ExperimentalWarning --import ./tests/resolve-ts.ts --test tests/*.test.ts",
+    "test": "node --preserve-symlinks --experimental-transform-types --no-warnings=ExperimentalWarning --import ./kit/scripts/resolve-ts.ts --test tests/*.test.ts",
     "test:rn": "jest",
-    "check": "npm run build-mermaid && npm run build-client && npm run typecheck && npm run test && npm run test:rn"
+    "check": "npm run build-mermaid && npm run build-client && npm run build-server && npm run typecheck && npm run test && npm run test:rn"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.13.0",

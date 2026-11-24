@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal } from "@getpaseo/plugin/client/ui";
 import { Text, View } from "react-native";
-import { Button, Notice } from "./controls";
+import { Button, Notice } from "../kit/client/controls";
 
 export function TrustNotice({
   theme,

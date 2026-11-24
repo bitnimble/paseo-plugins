@@ -3,13 +3,13 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import type { FileComments } from "../client/comments";
 import { createStyles } from "../client/diff-styles";
 import { NativeBody } from "../client/native-diff";
 import { LanguageFeatures } from "../client/peek";
 import { ScrollList, type ScrollListHandle } from "../client/windowed-rows";
-import { parseDiff } from "../shared/diff";
-import { fullBlocks } from "../shared/guide";
+import type { FileComments } from "../kit/client/comments";
+import { fullBlocks } from "../kit/shared/blocks";
+import { parseDiff } from "../kit/shared/diff";
 import type { PeekOutcome } from "../shared/protocol";
 import type { ViewOptions } from "../shared/settings";
 
@@ -38,8 +38,8 @@ jest.mock("../shared/protocol", () => ({
   fileRpc: { name: "review.file" },
   syntaxDiffRpc: { name: "review.difftastic.diff" },
   HIGHLIGHT_STYLES: [],
-  isDeflated: () => false,
 }));
+jest.mock("../kit/shared/protocol", () => ({ isDeflated: () => false }));
 jest.mock("@getpaseo/plugin/client/ui", () => {
   const { Text, View } = jest.requireActual<typeof import("react-native")>("react-native");
   return { Icon: () => null, Markdown: Text, ScrollView: View, TextInput: Text };

@@ -8,7 +8,8 @@
     ["npm", "ci", "--omit=dev", "--ignore-scripts"],
     ["npm", "run", "bundle-monaco"],
     ["npm", "run", "build-mermaid"],
-    ["npm", "run", "build-client"]
+    ["npm", "run", "build-client"],
+    ["npm", "run", "build-server"]
   ],
   "requirements": {
     "paseo": ">=0.13.0"

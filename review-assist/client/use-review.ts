@@ -2,37 +2,27 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { type FileFacts, type ParsedDiff, parseDiff } from "../shared/diff";
-import { messageOf } from "../shared/errors";
+import { usePackedRpc } from "../kit/client/packed";
+import type { CommentStore } from "../kit/client/use-comment-drafts";
+import { type SubmitComments, useReviewState } from "../kit/client/use-review-state";
+import { type FileFacts, type ParsedDiff, parseDiff } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
+import { type DiffMode, type DraftComment, type ReviewState, type ViewedMark, modeKey } from "../kit/shared/protocol";
 import {
   type DiffBase,
-  type DiffMode,
-  type DraftComment,
-  type Reviewer,
   type GuideJob,
   type GuideRecord,
-  type ReviewState,
-  type StateChange,
   type Trust,
-  type ViewedMark,
   diffRpc,
   generateRpc,
   guideJobRpc,
   guideRpc,
-  modeKey,
   setTrustRpc,
-  stateChangeRpc,
-  stateRpc,
-  submitRpc,
   trustRpc,
 } from "../shared/protocol";
-import { EMPTY_REVIEW_STATE, applyStateChange } from "../shared/review-state";
-import type { CommentStore } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
-import { usePackedRpc } from "./packed";
 
 const JOB_POLL_MS = 2_000;
-const STATE_WRITE = ["review-state-write"];
 
 export type LiveDiff =
   | { readonly status: "loading" }
@@ -69,11 +59,7 @@ export interface Review {
   saveComment(comment: DraftComment): void;
   deleteComment(id: string): void;
   setTrust(trusted: boolean): void;
-  /**
-   * Resolves to an error message, or null once the agent has the comments. `reviewer` may be null
-   * when every comment is a suggested edit.
-   */
-  submit(input: { reviewer: Reviewer | null; message: string }): Promise<string | null>;
+  submit: SubmitComments;
 }
 
 export function commentStore(review: Review): CommentStore {
@@ -97,16 +83,15 @@ export function useReview(input: {
   const readGuide = usePackedRpc(guideRpc);
   const readGuideJob = useRpc(guideJobRpc);
   const startGeneration = useRpc(generateRpc);
-  const readState = usePackedRpc(stateRpc);
-  const writeState = usePackedRpc(stateChangeRpc);
-  const sendComments = useRpc(submitRpc);
   const readTrust = useRpc(trustRpc);
   const writeTrust = useRpc(setTrustRpc);
   const target = { directory: directory ?? "", mode };
   const key = modeKey(mode);
   const guideKey = ["review-guide", directory, key];
-  const stateKey = ["review-state", directory, key];
   const trustKey = ["review-trust", projectId];
+  const reviewState = useReviewState(directory, mode, () => {
+    void queryClient.invalidateQueries({ queryKey: ["review-diff", directory] });
+  });
 
   const diffQuery = useQuery({
     queryKey: ["review-diff", directory, key, revision],
@@ -127,7 +112,6 @@ export function useReview(input: {
     enabled: directory != null,
     refetchInterval: (query) => (query.state.data?.job?.status === "running" ? JOB_POLL_MS : false),
   });
-  const stateQuery = useQuery({ queryKey: stateKey, queryFn: () => readState(target), enabled: directory != null });
   const trustQuery = useQuery({
     queryKey: trustKey,
     queryFn: () => readTrust({ projectId: projectId ?? "" }),
@@ -145,25 +129,6 @@ export function useReview(input: {
     },
     onError: (error) => toast.error(`Could not start the guided review: ${messageOf(error)}`),
   });
-  const stateWrite = useMutation({
-    mutationKey: STATE_WRITE,
-    mutationFn: (change: StateChange) => writeState({ ...target, change }),
-    onMutate: async (change) => {
-      await queryClient.cancelQueries({ queryKey: stateKey });
-      queryClient.setQueryData(stateKey, (old: ReviewState | undefined) =>
-        applyStateChange(old ?? EMPTY_REVIEW_STATE, change),
-      );
-    },
-    onError: (error, change) =>
-      toast.error(`Could not save the ${change.kind === "viewed" ? "viewed mark" : "comment"}: ${messageOf(error)}`),
-    onSettled: async () => {
-      // An earlier write's refetch would land before a later one is saved and flicker it back.
-      if (queryClient.isMutating({ mutationKey: STATE_WRITE }) === 1) {
-        await queryClient.invalidateQueries({ queryKey: stateKey });
-      }
-    },
-  });
-
   const response = diffQuery.data;
   const diffError = diffQuery.error;
   const live = useMemo((): LiveDiff => {
@@ -201,8 +166,8 @@ export function useReview(input: {
     live,
     guide,
     guideError: guideData == null && guideQuery.error != null ? messageOf(guideQuery.error) : null,
-    state: stateQuery.data ?? EMPTY_REVIEW_STATE,
-    stateLoaded: stateQuery.isSuccess,
+    state: reviewState.state,
+    stateLoaded: reviewState.loaded,
     trust: trustQuery.data?.trust ?? null,
     refreshing: diffQuery.isFetching,
     refresh: () => {
@@ -210,25 +175,14 @@ export function useReview(input: {
       void guideQuery.refetch();
     },
     generate: () => generation.mutate(),
-    setViewed: (marks, viewed) => stateWrite.mutate({ kind: "viewed", marks, viewed }),
-    saveComment: (comment) => stateWrite.mutate({ kind: "comments", remove: [], save: [comment] }),
-    deleteComment: (id) => stateWrite.mutate({ kind: "comments", remove: [id], save: [] }),
+    setViewed: reviewState.setViewed,
+    saveComment: reviewState.saveComment,
+    deleteComment: reviewState.deleteComment,
     setTrust: (trusted) => trustWrite.mutate(trusted),
     submit: async ({ reviewer, message }) => {
       if (live.status !== "ready") return "The diff is still loading.";
-      const commentIds = (stateQuery.data ?? EMPTY_REVIEW_STATE).comments.map(({ id }) => id);
-      try {
-        const result = await sendComments({ ...target, baseRef: live.base.sha, reviewer, message, commentIds });
-        if (result.status === "failed") return result.error;
-        queryClient.setQueryData(stateKey, result.state);
-        return null;
-      } catch (error) {
-        return messageOf(error);
-      } finally {
-        // Suggested edits may have changed the working tree and comments, even when the send failed.
-        void queryClient.invalidateQueries({ queryKey: ["review-diff", directory] });
-        void queryClient.invalidateQueries({ queryKey: stateKey });
-      }
+      const commentIds = reviewState.state.comments.map(({ id }) => id);
+      return reviewState.submit({ baseRef: live.base.sha, reviewer, message, commentIds });
     },
   };
 }

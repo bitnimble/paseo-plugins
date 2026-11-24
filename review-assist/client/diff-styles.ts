@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { StyleSheet } from "react-native";
-import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
+import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "../kit/client/palette";
 
 export const CODE_FONT_SIZE = 12;
 export const CODE_LINE_HEIGHT = 18;

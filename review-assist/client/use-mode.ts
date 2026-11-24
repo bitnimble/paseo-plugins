@@ -1,8 +1,9 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { messageOf } from "../shared/errors";
-import { type DiffMode, modeRpc, setModeRpc } from "../shared/protocol";
+import { messageOf } from "../kit/shared/errors";
+import { type DiffMode } from "../kit/shared/protocol";
+import { modeRpc, setModeRpc } from "../shared/protocol";
 
 export type SharedMode =
   | { readonly status: "loading" }

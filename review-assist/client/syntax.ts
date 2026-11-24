@@ -1,6 +1,6 @@
-import type { Span } from "../shared/display";
+import type { Span } from "../kit/shared/display";
+import type { SideLine } from "../kit/shared/sides";
 import { HIGHLIGHT_STYLES, type LineTokens } from "../shared/protocol";
-import type { SideLine } from "../shared/sides";
 import type { SyntaxPalette } from "./monaco/theme";
 
 // Skips U+2000-206F, general punctuation such as curly quotes and dashes.

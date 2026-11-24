@@ -1,13 +1,13 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { parseDiff } from "../shared/diff";
+import { JsonSlots, type Target, targetKey, targetSlot } from "../kit/server/slots";
+import { parseDiff } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
 import { buildGuide } from "../shared/guide";
 import { type GuideJob, type GuideRecord, guideRecordSchema } from "../shared/protocol";
 import { type ReviewSettings, reviewSettings } from "../shared/settings";
 import { readBlob, readDiff } from "./git";
 import { readPromptContext } from "./prompt-context";
-import { messageOf } from "../shared/errors";
 import { SegmentError, proposeSections, resolveModels } from "./segment";
-import { JsonSlots, type Target, targetKey, targetSlot } from "./slots";
 
 export class GuideStore {
   private readonly jobs = new Map<string, GuideJob>();

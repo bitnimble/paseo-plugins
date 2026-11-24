@@ -4,13 +4,13 @@ import { join } from "node:path";
 import test, { after } from "node:test";
 import { ReviewAttachmentSchema } from "@getpaseo/protocol/messages";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { sendReview, submitReview, workspaceAgents } from "../server/agents";
-import { ReviewStates } from "../server/review-state";
-import { type CommentTarget, commentLine, commentTarget, suggestible } from "../shared/comments";
-import { parseDiff } from "../shared/diff";
-import { fullBlocks } from "../shared/guide";
-import { DEFAULT_BRANCH_MODE, type DraftComment } from "../shared/protocol";
-import { blockSides } from "../shared/sides";
+import { sendReview, submitReview, workspaceAgents } from "../kit/server/agents";
+import { ReviewStates } from "../kit/server/review-state";
+import { fullBlocks } from "../kit/shared/blocks";
+import { type CommentTarget, commentLine, commentTarget, suggestible } from "../kit/shared/comments";
+import { parseDiff } from "../kit/shared/diff";
+import { DEFAULT_BRANCH_MODE, type DraftComment } from "../kit/shared/protocol";
+import { blockSides } from "../kit/shared/sides";
 import { freshRepo, removeScratch, scratchDirectory, writeIn } from "./repo";
 
 after(removeScratch);
@@ -154,7 +154,12 @@ test("submitting needs an agent unless every comment is a suggested edit, and co
   } as unknown as ReviewStates;
   const paseo = {} as PluginHandlerContext["paseo"];
   const submit = (commentIds: string[]) =>
-    submitReview(paseo, states, { directory: "/repo", mode: DEFAULT_BRANCH_MODE, baseRef: "abc123", reviewer: null, message: "", commentIds });
+    submitReview(
+      paseo,
+      states,
+      { directory: "/repo", mode: DEFAULT_BRANCH_MODE, baseRef: "abc123", reviewer: null, message: "", commentIds },
+      async (directory) => directory,
+    );
 
   assert.deepEqual(await submit(["1"]), { status: "failed", error: "Pick an agent for the comments." });
   assert.deepEqual(await submit(["gone"]), { status: "failed", error: "These comments were already sent or deleted." });
@@ -194,7 +199,12 @@ test("submitting writes the edits' comments away in one change before sending, a
     },
   } as unknown as PluginHandlerContext["paseo"];
   const submit = (commentIds: string[]) =>
-    submitReview(paseo, states, { ...slot, baseRef: "abc123", reviewer: { kind: "agent", id: "a" }, message: "", commentIds });
+    submitReview(
+      paseo,
+      states,
+      { ...slot, baseRef: "abc123", reviewer: { kind: "agent", id: "a" }, message: "", commentIds },
+      async (directory) => directory,
+    );
 
   assert.deepEqual(await submit(["edit", "plain"]), {
     status: "failed",

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isChange, parseDiff, serializeDiff } from "../shared/diff";
-import { type DiffChunk, type Proposal, blockFingerprint, buildGuide, composeGuide, guideBlocks } from "../shared/guide";
+import { type DiffChunk, blockFingerprint } from "../kit/shared/blocks";
+import { isChange, parseDiff, serializeDiff } from "../kit/shared/diff";
+import { type Proposal, buildGuide, composeGuide, guideBlocks } from "../shared/guide";
 
 const RAW = `diff --git a/src/app.ts b/src/app.ts
 index 1111111..2222222 100644

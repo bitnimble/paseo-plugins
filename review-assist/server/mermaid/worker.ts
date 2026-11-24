@@ -1,9 +1,10 @@
+// First: installs the DOM globals mermaid reads as it loads.
 import { FONT_FAMILY, FONT_SIZE, document, font } from "./shim";
 import { Resvg, initWasm } from "@resvg/resvg-wasm";
 import wasm from "@resvg/resvg-wasm/index_bg.wasm";
 import mermaid from "mermaid";
 import { parentPort } from "node:worker_threads";
-import { messageOf } from "../../shared/errors";
+import { messageOf } from "../../kit/shared/errors";
 import type { MermaidOutcome, MermaidPalette } from "../../shared/protocol";
 import { type Diagram, diffDiagrams, diffSource } from "./diagram";
 import type { MermaidRequest, MermaidResponse } from "./messages";

@@ -1,4 +1,4 @@
-import type { DiffFile } from "../shared/diff";
+import type { DiffFile } from "../kit/shared/diff";
 import { MERMAID_DEFAULT_DISTANCE } from "../shared/protocol";
 
 export type VisualView =

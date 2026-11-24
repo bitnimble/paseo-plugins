@@ -3,14 +3,14 @@ import { Icon, Markdown } from "@getpaseo/plugin/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { messageOf } from "../shared/errors";
+import { usePackedRpc } from "../kit/client/packed";
+import { CODE_SURFACE, MONOSPACE, tint } from "../kit/client/palette";
+import { messageOf } from "../kit/shared/errors";
 import type { LspPosition } from "../shared/lsp";
 import { type PeekLocation, type PeekOutcome, peekRpc } from "../shared/protocol";
 import { CODE_FONT_SIZE, CODE_LINE_HEIGHT } from "./diff-styles";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { usePackedRpc } from "./packed";
-import { CODE_SURFACE, MONOSPACE, tint } from "./palette";
 import { codePieces, coloredTokens, expandTabs } from "./syntax";
 
 /** Set once the project is trusted, for language features against its language servers. */

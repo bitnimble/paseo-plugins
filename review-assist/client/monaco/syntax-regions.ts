@@ -1,5 +1,5 @@
+import type { ChangeRun } from "../../kit/shared/sides";
 import type { SyntaxChange, SyntaxDiff } from "../../shared/protocol";
-import type { ChangeRun } from "../../shared/sides";
 import type { MonacoRange } from "./api";
 
 export interface InnerChange {

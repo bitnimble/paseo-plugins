@@ -3,7 +3,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import contribute from "../index.server";
+import contribute from "../server/index";
 import { LanguageServers } from "../server/lsp/pool";
 import { ProjectTrust } from "../server/trust";
 import { fileRpc, leaseRpc, lspRpc, setTrustRpc, trustRpc } from "../shared/protocol";

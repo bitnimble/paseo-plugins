@@ -1,4 +1,4 @@
-import { createContext } from "react";
+import { type RefObject, createContext, useCallback, useEffect, useRef, useState } from "react";
 import { Keyboard, Platform, type View } from "react-native";
 import { hasMouse } from "./web";
 
@@ -23,6 +23,54 @@ const MIN_KEYBOARD_HEIGHT = 120;
 
 /** Scrolls `node` to the middle of what the soft keyboard leaves visible; returns a cancel. */
 export const CentreAboveKeyboard = createContext<(node: View) => () => void>(() => () => undefined);
+
+export interface Scroller {
+  offset(): number;
+  scrollTo(y: number, animated: boolean): void;
+}
+
+/**
+ * The `CentreAboveKeyboard` for a list scrolled by `scroller` inside `frame`, and the space to pad
+ * its end with so the last comment can centre too; `open` is whether a comment is open.
+ */
+export function useCentreAboveKeyboard(
+  frame: RefObject<View | null>,
+  scroller: RefObject<Scroller | null>,
+  open: boolean,
+): { centre: (node: View) => () => void; bottomInset: number } {
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const bottomInset = open ? keyboardInset : 0;
+  const latestInset = useRef(bottomInset);
+  latestInset.current = bottomInset;
+  const pendingScroll = useRef<number | null>(null);
+  const scrollToPending = useCallback(() => {
+    if (pendingScroll.current == null) return;
+    scroller.current?.scrollTo(pendingScroll.current, true);
+    pendingScroll.current = null;
+  }, [scroller]);
+  const centre = useCallback(
+    (node: View) => {
+      let live = true;
+      const stop = afterKeyboard(async (visible) => {
+        if (frame.current == null) return;
+        const [shown, target] = await Promise.all([spanOf(frame.current), spanOf(node)]);
+        if (!live) return;
+        const { scroll, bottomInset: inset } = centring(shown, target, visible);
+        pendingScroll.current = Math.max(0, (scroller.current?.offset() ?? 0) + scroll);
+        // The effect on the inset scrolls once the space is laid out.
+        if (inset === latestInset.current) scrollToPending();
+        else setKeyboardInset(inset);
+      });
+      return () => {
+        live = false;
+        stop();
+      };
+    },
+    [frame, scroller, scrollToPending],
+  );
+  useEffect(scrollToPending, [bottomInset, scrollToPending]);
+  return { centre, bottomInset };
+}
 
 /**
  * Calls `then` with the part of the window the soft keyboard leaves visible, once it has opened or

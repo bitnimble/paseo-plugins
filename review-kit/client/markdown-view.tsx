@@ -11,8 +11,8 @@ import {
   type TextStyle,
   View,
 } from "react-native";
+import type { FileBlock } from "../shared/blocks";
 import { messageOf } from "../shared/errors";
-import type { FileBlock } from "../shared/guide";
 import { hashText } from "../shared/hash";
 import {
   type MarkdownBlock,
@@ -33,9 +33,9 @@ import {
   fileCards,
   inScope,
 } from "./comments";
-import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
+import type { FileText } from "./file-text";
 import { usePackedRpc } from "./packed";
-import type { FileText } from "./use-code";
+import { IN_SCOPE_ALPHA, MONOSPACE, diffAlpha, tint } from "./palette";
 import { hasMouse } from "./web";
 
 const CONTEXT_BLOCKS = 2;
@@ -54,6 +54,7 @@ export function MarkdownBody({
   text,
   theme,
   comments,
+  foldUnchanged,
   noteStyle,
   fallback,
 }: {
@@ -61,6 +62,7 @@ export function MarkdownBody({
   text: FileText;
   theme: PluginTheme;
   comments: FileComments;
+  foldUnchanged: boolean;
   noteStyle: TextStyle;
   fallback: ReactNode;
 }) {
@@ -88,6 +90,7 @@ export function MarkdownBody({
       sides={shown.current.sides}
       entries={shown.current.entries}
       comments={comments}
+      foldUnchanged={foldUnchanged}
     />
   );
 }
@@ -116,12 +119,14 @@ function MarkdownEntries({
   sides,
   entries,
   comments,
+  foldUnchanged,
 }: {
   theme: PluginTheme;
   block: FileBlock;
   sides: BlockSides;
   entries: readonly MarkdownEntry[];
   comments: FileComments;
+  foldUnchanged: boolean;
 }) {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
@@ -140,7 +145,7 @@ function MarkdownEntries({
   };
   return (
     <View style={styles.document}>
-      {rowsOf(entries, expanded, placement.byEntry).map((row) =>
+      {rowsOf(entries, foldUnchanged ? expanded : null, placement.byEntry).map((row) =>
         row.kind === "entry" ? (
           <Fragment key={row.index}>
             <EntryView
@@ -208,10 +213,10 @@ function placeCards(
   }
 }
 
-/** Long runs of unchanged blocks folded down to the few beside each change, until expanded or commented on. */
+/** Long runs of unchanged blocks folded down to the few beside each change, until expanded or commented on; null `expanded` folds none. */
 function rowsOf(
   entries: readonly MarkdownEntry[],
-  expanded: ReadonlySet<number>,
+  expanded: ReadonlySet<number> | null,
   pinned: ReadonlyMap<number, unknown>,
 ): Row[] {
   const rows: Row[] = [];
@@ -226,7 +231,7 @@ function rowsOf(
     const hideFrom = start === 0 ? 0 : start + CONTEXT_BLOCKS;
     const hideTo = end === entries.length ? end : end - CONTEXT_BLOCKS;
     const isPinned = [...pinned.keys()].some((index) => index >= hideFrom && index < hideTo);
-    if (!same || hideTo - hideFrom < 2 || expanded.has(start) || isPinned) {
+    if (expanded == null || !same || hideTo - hideFrom < 2 || expanded.has(start) || isPinned) {
       show(start, end);
     } else {
       show(start, hideFrom);

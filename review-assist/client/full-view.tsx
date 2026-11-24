@@ -1,12 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
-import type { ParsedDiff } from "../shared/diff";
-import { fullBlocks } from "../shared/guide";
+import { countByPath } from "../kit/client/comments";
+import type { CommentStore } from "../kit/client/use-comment-drafts";
+import { fullBlocks } from "../kit/shared/blocks";
+import type { ParsedDiff } from "../kit/shared/diff";
 import type { ViewOptions } from "../shared/settings";
 import { treeOrder } from "../shared/tree";
-import { countByPath } from "./comments";
-import type { CommentStore, FoldCommand, ScrollTarget } from "./diff-list";
+import type { FoldCommand, ScrollTarget } from "./diff-list";
 import type { CodeSource } from "./monaco/review-monaco";
 import { FileList } from "./panes";
 import { ReviewSplit } from "./review-split";

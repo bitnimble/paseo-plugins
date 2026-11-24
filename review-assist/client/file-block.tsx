@@ -2,23 +2,23 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, Text, View } from "react-native";
-import type { CommentTarget } from "../shared/comments";
-import { type DiffFile, type DiffLine, isChange } from "../shared/diff";
-import { type FileBlock, blockCounts } from "../shared/guide";
-import type { DraftComment } from "../shared/protocol";
+import type { CommentDraft } from "../kit/client/comments";
+import { ChangeStats, FileLabel, Tabs } from "../kit/client/controls";
+import { MarkdownBody } from "../kit/client/markdown-view";
+import { STICKY } from "../kit/client/palette";
+import { type CommentActions, fileComments } from "../kit/client/use-comment-drafts";
+import { type FileBlock, blockCounts } from "../kit/shared/blocks";
+import { type DiffFile, type DiffLine, isChange } from "../kit/shared/diff";
+import type { DraftComment } from "../kit/shared/protocol";
+import { blockHunks, changesThrough, shownChangeCount } from "../kit/shared/sides";
 import type { ViewOptions } from "../shared/settings";
-import { type SideLine, blockHunks, changesThrough, shownChangeCount } from "../shared/sides";
-import type { CommentDraft, FileComments, Suggestion } from "./comments";
 import { BinaryBody, LfsBody } from "./binary-view";
-import { ChangeStats, FileLabel, Tabs } from "./controls";
 import { type DiffStyles, FILE_HEADER_HEIGHT } from "./diff-styles";
-import { MarkdownBody } from "./markdown-view";
 import { MermaidBody } from "./mermaid-view";
 import { MonacoFileDiff, estimateHeight } from "./monaco-diff";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
 import { NativeBody } from "./native-diff";
-import { STICKY } from "./palette";
 import { useFileText } from "./use-code";
 import type { VisualView } from "./visual-view";
 import { ContentTop, PinnedHeight, usePinnedAtTop } from "./windowed-rows";
@@ -27,14 +27,6 @@ const VISUAL_TABS = [
   { value: "visual", label: "Visual" },
   { value: "text", label: "Text" },
 ] as const;
-
-export interface CommentActions {
-  compose(filePath: string, blockKey: string, lines: readonly SideLine[], start: number, end: number, extend: boolean): void;
-  edit(comment: DraftComment): void;
-  cancel(): void;
-  submit(target: CommentTarget, body: string, suggestion: Suggestion | null): void;
-  remove(id: string): void;
-}
 
 interface FileBlockViewProps {
   readonly block: FileBlock;
@@ -94,16 +86,8 @@ export const FileBlockView = memo(function FileBlockView({
   const lastMatched = useRef<{ block: FileBlock; text: string } | null>(null);
   if (text.status === "ready" && !text.previous) lastMatched.current = { block, text: text.text };
   const matched = text.status !== "ready" ? null : text.previous ? lastMatched.current : { block, text: text.text };
-  const fileComments = useMemo(
-    (): FileComments => ({
-      comments,
-      draft,
-      compose: (lines, start, end, extend = false) => actions.compose(file.path, foldKey, lines, start, end, extend),
-      edit: actions.edit,
-      cancel: actions.cancel,
-      submit: actions.submit,
-      remove: actions.remove,
-    }),
+  const commentsHere = useMemo(
+    () => fileComments(file.path, foldKey, comments, draft, actions),
     [comments, draft, actions, file.path, foldKey],
   );
   const onlyWhitespace = useMemo(
@@ -133,7 +117,7 @@ export const FileBlockView = memo(function FileBlockView({
       styles={styles}
       theme={theme}
       palette={palette}
-      comments={fileComments}
+      comments={commentsHere}
       changeLimit={limit}
       onShowMore={showMore}
       hidden={hidden}
@@ -216,7 +200,8 @@ export const FileBlockView = memo(function FileBlockView({
           block={block}
           text={text}
           theme={theme}
-          comments={fileComments}
+          comments={commentsHere}
+          foldUnchanged
           noteStyle={styles.note}
           fallback={textBody()}
         />
@@ -250,7 +235,7 @@ export const FileBlockView = memo(function FileBlockView({
         theme={theme}
         palette={palette}
         overflowHost={overflowHost}
-        comments={fileComments}
+        comments={commentsHere}
         changeLimit={limit}
         onShowMore={showMore}
         hidden={hidden}

@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
-import { type DiffFile, type FileFacts, parseDiff } from "../shared/diff";
-import type { BlobPreview, DiffBase, DiffMode } from "../shared/protocol";
+import { repoRoot } from "../kit/server/repo";
+import { type DiffFile, type FileFacts, parseDiff } from "../kit/shared/diff";
+import type { DiffMode } from "../kit/shared/protocol";
+import type { BlobPreview, DiffBase } from "../shared/protocol";
 
 export interface DiffSnapshot {
   readonly raw: string;
@@ -130,10 +132,6 @@ async function binarySizes(root: string, files: readonly DiffFile[]): Promise<Fi
   return Object.fromEntries(
     binary.map((file, i) => [file.path, { before: size(lines[2 * i]), after: size(lines[2 * i + 1]) }]),
   );
-}
-
-export async function repoRoot(directory: string): Promise<string> {
-  return (await git(directory, ["rev-parse", "--show-toplevel"])).trim();
 }
 
 /** `tree` may also be a commit. */

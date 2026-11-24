@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
+import { DEFAULT_BRANCH_MODE, UNCOMMITTED_MODE } from "../kit/shared/protocol";
 import { ReviewModes } from "../server/review-modes";
-import { DEFAULT_BRANCH_MODE, UNCOMMITTED_MODE } from "../shared/protocol";
 import { removeScratch, scratchDirectory } from "./repo";
 
 after(removeScratch);

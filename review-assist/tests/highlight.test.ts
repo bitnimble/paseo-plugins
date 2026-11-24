@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
+import { UNCOMMITTED_MODE } from "../kit/shared/protocol";
 import { readDiff } from "../server/git";
 import { highlightSides } from "../server/highlight";
 import { TreeFiles } from "../server/trees";
-import { HIGHLIGHT_STYLES, UNCOMMITTED_MODE } from "../shared/protocol";
+import { HIGHLIGHT_STYLES } from "../shared/protocol";
 import { freshRepo, gitIn, removeScratch, writeIn } from "./repo";
 
 after(removeScratch);

@@ -3,21 +3,21 @@ import { Loading } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { z } from "zod";
-import { DEFAULT_BRANCH_MODE, type DiffMode, diffModeSchema, modeKey } from "../shared/protocol";
+import { IconButton, Tabs } from "../kit/client/controls";
+import { ErrorBoundary } from "../kit/client/error-boundary";
+import { Dropdown, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator, Toolbar } from "../kit/client/menu";
+import { ModelMenu } from "../kit/client/model-menu";
+import { MONOSPACE, compactCount } from "../kit/client/palette";
+import { SendComments } from "../kit/client/send-comments";
+import { DEFAULT_BRANCH_MODE, type DiffMode, diffModeSchema, modeKey } from "../kit/shared/protocol";
 import { type ReviewSettings, type SectionsLayout, type ViewOptions, reviewSettings } from "../shared/settings";
-import { IconButton, Tabs } from "./controls";
 import type { FoldCommand } from "./diff-list";
-import { ErrorBoundary } from "./error-boundary";
 import { FullView } from "./full-view";
 import { GuidedView } from "./guided-view";
-import { Dropdown, MENU_HOST_Z_INDEX, MenuBackdrop, MenuHeading, MenuItem, MenuSeparator } from "./menu";
 import { ModeMenu } from "./mode-menu";
-import { ModelMenu } from "./model-menu";
-import { MONOSPACE, compactCount } from "./palette";
 import { fitsPane } from "./panes";
 import { LanguageFeatures } from "./peek";
 import { type ScrollAnchor, scrollAnchorSchema } from "./scroll-anchor";
-import { SendComments } from "./send-comments";
 import { TrustDialog, TrustNotice } from "./trust";
 import { useCodeIntelligence, useDifftasticStatus } from "./use-code";
 import { useSharedMode } from "./use-mode";
@@ -160,23 +160,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
       onLayout={(event) => setFits(fitsPane(event.nativeEvent.layout.width))}
     >
       {menu == null ? null : <MenuBackdrop onPress={() => setMenu(null)} />}
-      <View
-        ref={toolbar}
-        collapsable={false}
-        style={{
-          zIndex: MENU_HOST_Z_INDEX,
-          flexDirection: "row",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: 8,
-          minHeight: 40,
-          paddingHorizontal: 8,
-          paddingVertical: 4,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-          backgroundColor: theme.colors.surface0,
-        }}
-      >
+      <Toolbar theme={theme} ref={toolbar}>
         <IconButton
           theme={theme}
           icon={paneShown ? "PanelLeftClose" : "PanelLeftOpen"}
@@ -339,7 +323,7 @@ function Review({ theme, layout, workspaceId, navigation, tab: panelTab }: Plugi
             }}
           />
         </Dropdown>
-      </View>
+      </Toolbar>
 
       {review.trust === "undecided" ? (
         <TrustNotice theme={theme} onTrust={() => setTrustPrompt(true)} onKeepOff={() => review.setTrust(false)} />

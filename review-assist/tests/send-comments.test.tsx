@@ -1,11 +1,11 @@
 import { expect, jest, test } from "@jest/globals";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { MessageInput } from "../client/send-comments";
+import { MessageInput } from "../kit/client/send-comments";
 
 jest.mock("@getpaseo/plugin/client/ui", () => ({ TextInput: jest.requireActual<typeof import("react-native")>("react-native").TextInput }));
 jest.mock("@getpaseo/plugin/client", () => ({ useRpc: () => async () => ({}) }));
-jest.mock("../shared/protocol", () => ({ agentsRpc: {} }));
+jest.mock("../kit/shared/protocol", () => ({ agentsRpc: {} }));
 
 const theme = { colors: { foreground: "#fff", foregroundMuted: "#aaa", border: "#333" } } as unknown as PluginTheme;
 

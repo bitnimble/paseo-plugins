@@ -1,6 +1,6 @@
 import type { HighlightStyle } from "@getpaseo/highlight";
 import type { PluginTheme } from "@getpaseo/plugin";
-import { IN_SCOPE_ALPHA, diffAlpha, hexTint, isDark } from "../palette";
+import { IN_SCOPE_ALPHA, diffAlpha, hexTint, isDark } from "../../kit/client/palette";
 import type { MonacoThemeData } from "./api";
 
 export const THEME_NAME = "paseo-review";

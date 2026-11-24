@@ -5,18 +5,16 @@ import { act, render, screen } from "@testing-library/react-native";
 import type { View as HostView } from "react-native";
 import { CODE_LINE_HEIGHT, FILE_HEADER_HEIGHT } from "../client/diff-styles";
 import { FullView } from "../client/full-view";
-import { parseDiff } from "../shared/diff";
-import { blockLines, fullBlocks } from "../shared/guide";
+import { blockLines, fullBlocks } from "../kit/shared/blocks";
+import { parseDiff } from "../kit/shared/diff";
 import type { ViewOptions } from "../shared/settings";
 
 const mockScrollTo = jest.fn();
 jest.mock("@getpaseo/plugin/client", () => ({
   useRpc: () => async () => ({ status: "failed", error: "offline" }),
 }));
-jest.mock("../shared/protocol", () => ({
-  HIGHLIGHT_STYLES: [],
-  isDeflated: () => false,
-}));
+jest.mock("../shared/protocol", () => ({ HIGHLIGHT_STYLES: [] }));
+jest.mock("../kit/shared/protocol", () => ({ isDeflated: () => false }));
 jest.mock("@getpaseo/plugin/client/ui", () => {
   const { createElement, forwardRef, useImperativeHandle, useRef } = jest.requireActual<typeof import("react")>("react");
   const { Text, View } = jest.requireActual<typeof import("react-native")>("react-native");

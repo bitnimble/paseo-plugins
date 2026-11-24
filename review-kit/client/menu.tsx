@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { type ReactNode, type RefObject, useRef, useState } from "react";
+import { type ReactNode, type Ref, type RefObject, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { FieldTrigger, ToolbarTrigger } from "./controls";
 import { menuOffset } from "./menu-placement";
@@ -99,6 +99,31 @@ export function Dropdown({
           {children}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** The panel's header bar, which hosts its dropdowns: pass `ref` as their `bounds`. */
+export function Toolbar({ theme, ref, children }: { theme: PluginTheme; ref?: Ref<View>; children: ReactNode }) {
+  return (
+    <View
+      ref={ref}
+      collapsable={false}
+      style={{
+        zIndex: MENU_HOST_Z_INDEX,
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 8,
+        minHeight: 40,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.border,
+        backgroundColor: theme.colors.surface0,
+      }}
+    >
+      {children}
     </View>
   );
 }

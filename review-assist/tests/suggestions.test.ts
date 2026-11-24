@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { commentTarget, suggestible } from "../shared/comments";
-import { parseDiff } from "../shared/diff";
-import { fullBlocks } from "../shared/guide";
-import type { DraftComment } from "../shared/protocol";
-import { blockSides } from "../shared/sides";
-import { applyEdits, applySuggestions } from "../server/suggestions";
+import { applyEdits, applySuggestions } from "../kit/server/suggestions";
+import { fullBlocks } from "../kit/shared/blocks";
+import { commentTarget, suggestible } from "../kit/shared/comments";
+import { parseDiff } from "../kit/shared/diff";
+import type { DraftComment } from "../kit/shared/protocol";
+import { blockSides } from "../kit/shared/sides";
 import { removeScratch, scratchDirectory, writeIn } from "./repo";
 
 after(removeScratch);
@@ -44,6 +44,11 @@ test("a suggestion on a CRLF file's diff applies, keeping the CRLFs", () => {
   const original = suggestible(target);
   assert.equal(original, "A\nb");
   assert.equal(applyEdits("A\r\nb\r\n", [{ ...comment(1, 2, { original: original ?? "", replacement: "x\ny\nz" }) }]), "x\r\ny\r\nz\r\n");
+});
+
+test("a suggestion on a file's first line keeps its byte order mark, whether or not the suggestion saw it", () => {
+  assert.equal(applyEdits("﻿a\nb\n", [comment(1, 1, { original: "a", replacement: "x" })]), "﻿x\nb\n");
+  assert.equal(applyEdits("﻿a\nb\n", [comment(1, 1, { original: "﻿a", replacement: "﻿x" })]), "﻿x\nb\n");
 });
 
 test("a suggestion whose lines changed, or that overlaps another, is refused", () => {

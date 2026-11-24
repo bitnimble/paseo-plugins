@@ -1,5 +1,5 @@
-import { type ParsedDiff, parseDiff } from "../shared/diff";
-import { applyHunks } from "../shared/sides";
+import { type ParsedDiff, parseDiff } from "../kit/shared/diff";
+import { applyHunks } from "../kit/shared/sides";
 import { hasObject, readBlob } from "./git";
 
 interface KnownDiff {

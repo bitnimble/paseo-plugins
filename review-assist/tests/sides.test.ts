@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { readBlob, readDiff } from "../server/git";
-import { UNCOMMITTED_MODE } from "../shared/protocol";
-import { TreeFiles } from "../server/trees";
-import { type DiffFile, type DiffLine, parseDiff } from "../shared/diff";
-import { type FileBlock, fullBlocks } from "../shared/guide";
+import { type FileBlock, fullBlocks } from "../kit/shared/blocks";
+import { type DiffFile, type DiffLine, parseDiff } from "../kit/shared/diff";
+import { UNCOMMITTED_MODE } from "../kit/shared/protocol";
 import {
   applyHunks,
   blockHunks,
@@ -16,7 +14,9 @@ import {
   shownChangeCount,
   takeChanges,
   wholeFileLines,
-} from "../shared/sides";
+} from "../kit/shared/sides";
+import { readBlob, readDiff } from "../server/git";
+import { TreeFiles } from "../server/trees";
 import { freshRepo, gitIn, removeScratch, writeIn } from "./repo";
 
 let repo = "";

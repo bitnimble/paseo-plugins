@@ -3,7 +3,6 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { isEdit, rangeDescription, rangeLabel } from "../shared/comments";
 import { failed, messageOf } from "../shared/errors";
 import type { AgentChoice, DraftComment, Reviewer, submitRpc } from "../shared/protocol";
-import { repoRoot } from "./git";
 import type { ReviewStates } from "./review-state";
 import type { Target } from "./slots";
 import { applySuggestions } from "./suggestions";
@@ -25,17 +24,21 @@ export async function workspaceAgents(paseo: Paseo, workspaceId: string): Promis
     .map(({ id, title, provider, status }) => ({ id, title, provider, status }));
 }
 
-/** Makes the suggested edits, then sends the rest of the comments; either way, drops what it handled. */
+/**
+ * Makes the suggested edits, then sends the rest of the comments; either way, drops what it handled.
+ * `rootOf` is the directory a target's comment paths are relative to.
+ */
 export async function submitReview(
   paseo: Paseo,
   states: ReviewStates,
   { commentIds, reviewer, ...input }: RpcInput<typeof submitRpc>,
+  rootOf: (directory: string) => Promise<string>,
 ): Promise<RpcOutput<typeof submitRpc>> {
   const comments = (await states.read(input)).comments.filter(({ id }) => commentIds.includes(id));
   if (comments.length === 0) return failed("These comments were already sent or deleted.");
   if (reviewer == null && !comments.every(isEdit)) return failed("Pick an agent for the comments.");
   try {
-    const { applied, rest } = await applySuggestions(await repoRoot(input.directory), comments);
+    const { applied, rest } = await applySuggestions(await rootOf(input.directory), comments);
     // The edits are on disk now: a failed send below must leave only the rest, renumbered, to retry.
     await states.apply(input, { kind: "comments", remove: applied.map(({ id }) => id), save: rest });
     if (reviewer != null && rest.length > 0) {

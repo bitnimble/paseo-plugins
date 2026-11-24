@@ -3,13 +3,13 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Image, Pressable, Text, type TextStyle, View } from "react-native";
-import type { DiffFile } from "../shared/diff";
-import { messageOf } from "../shared/errors";
+import { Button } from "../kit/client/controls";
+import { formatBytes } from "../kit/client/palette";
+import type { DiffFile } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
 import { type BlobPreview, blobRpc } from "../shared/protocol";
-import { Button } from "./controls";
 import { ImageLightbox } from "./image-lightbox";
 import type { CodeSource } from "./monaco/review-monaco";
-import { formatBytes } from "./palette";
 
 const MAX_IMAGE_HEIGHT = 480;
 

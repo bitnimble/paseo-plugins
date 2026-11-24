@@ -1,0 +1,13 @@
+{
+  "id": "markdown-review",
+  "name": "Markdown review",
+  "description": "Comment on a rendered markdown document and send the comments or suggested edits to an agent.",
+  "build": [
+    ["npm", "ci", "--omit=dev", "--ignore-scripts"],
+    ["npm", "run", "build-client"],
+    ["npm", "run", "build-server"]
+  ],
+  "requirements": {
+    "paseo": ">=0.13.0"
+  }
+}

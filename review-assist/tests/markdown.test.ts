@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { markdownDiff } from "../server/markdown";
-import type { MarkdownBlock, MarkdownEntry, MarkdownRun } from "../shared/protocol";
+import { markdownDiff } from "../kit/server/markdown";
+import type { MarkdownBlock, MarkdownEntry, MarkdownRun } from "../kit/shared/protocol";
 
 function entries(before: string, after: string): MarkdownEntry[] {
   const outcome = markdownDiff(before, after);

@@ -1,10 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, View } from "react-native";
-import { detailsOf } from "../shared/errors";
-import { type FileBlock, blockLines } from "../shared/guide";
-import type { ViewOptions } from "../shared/settings";
-import { type BlockSides, CONTEXT_LINES, type Side, blockSides } from "../shared/sides";
 import {
   type Card,
   CommentSlot,
@@ -16,14 +12,27 @@ import {
   fileCards,
   inScope,
   scopeEdges,
-} from "./comments";
-import { ShowMoreChanges } from "./controls";
-import type { CodeEditor, Decoration, DecorationsCollection, DiffEditor, IDisposable, Monaco, MonacoModel, MonacoRange } from "./monaco/api";
+} from "../kit/client/comments";
+import { ShowMoreChanges } from "../kit/client/controls";
+import { CODE_SURFACE, MONOSPACE, STICKY } from "../kit/client/palette";
+import { type FileBlock, blockLines } from "../kit/shared/blocks";
+import { detailsOf } from "../kit/shared/errors";
+import { type BlockSides, CONTEXT_LINES, type Side, blockSides } from "../kit/shared/sides";
+import type { ViewOptions } from "../shared/settings";
+import type {
+  CodeEditor,
+  Decoration,
+  DecorationsCollection,
+  DiffEditor,
+  IDisposable,
+  Monaco,
+  MonacoModel,
+  MonacoRange,
+} from "./monaco/api";
 import { CommentZones, type ZoneSpec } from "./monaco/comment-zones";
 import { type CodeSource, reviewMonaco } from "./monaco/review-monaco";
 import { syntaxRegions } from "./monaco/syntax-regions";
 import { THEME_NAME, type SyntaxPalette } from "./monaco/theme";
-import { CODE_SURFACE, MONOSPACE, STICKY } from "./palette";
 import { useSyntaxDiff } from "./use-code";
 import { asEditorContainer, asOverflowHost, keepMovedCodeCompare, scrollSidewaysOnWheel, signFirstDeletedRows } from "./web";
 import { ContentTop, PinnedHeight, useViewport } from "./windowed-rows";

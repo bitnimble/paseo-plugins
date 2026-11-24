@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detailsOf } from "../shared/errors";
+import { detailsOf } from "../kit/shared/errors";
 
 test("an aggregate error's details include every error it gathers", () => {
   const details = detailsOf(

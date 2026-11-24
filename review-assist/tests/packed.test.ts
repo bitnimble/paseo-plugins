@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inflated } from "../client/inflate";
-import { packed } from "../server/packed";
-import { diffRpc, isDeflated } from "../shared/protocol";
+import { inflated } from "../kit/client/inflate";
+import { packed } from "../kit/server/packed";
+import { isDeflated } from "../kit/shared/protocol";
+import { diffRpc } from "../shared/protocol";
 
 test("small outputs travel as they are, large ones deflated and back intact through the contract", async () => {
   const failed = { status: "failed" as const, error: "No such directory" };

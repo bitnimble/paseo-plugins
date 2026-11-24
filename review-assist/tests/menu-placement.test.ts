@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { menuOffset } from "../client/menu-placement";
+import { menuOffset } from "../kit/client/menu-placement";
 
 test("a menu that fits stays at its trigger", () => {
   assert.equal(menuOffset(100, 400, 248), 0);

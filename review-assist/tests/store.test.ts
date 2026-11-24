@@ -4,9 +4,9 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { ReviewStates } from "../server/review-state";
+import { ReviewStates } from "../kit/server/review-state";
+import { type DraftComment, UNCOMMITTED_MODE } from "../kit/shared/protocol";
 import { GuideStore } from "../server/store";
-import { type DraftComment, UNCOMMITTED_MODE } from "../shared/protocol";
 import type { ReviewSettings } from "../shared/settings";
 import { freshRepo, gitIn, removeScratch, scratchDirectory, writeIn } from "./repo";
 

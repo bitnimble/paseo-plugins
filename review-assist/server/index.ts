@@ -1,24 +1,10 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { submitReview, workspaceAgents } from "./server/agents";
-import { Difftastic } from "./server/difftastic";
-import { listBranches, previewBlob, readDiff, repoRoot } from "./server/git";
-import { highlightSides, syntaxPalette } from "./server/highlight";
-import { peek } from "./server/lsp/peek";
-import { LanguageServers } from "./server/lsp/pool";
-import { markdownDiff } from "./server/markdown";
-import { MermaidRenderer } from "./server/mermaid/renderer";
-import { monacoChunk } from "./server/monaco-assets";
-import { handlePacked } from "./server/packed";
-import { ReviewModes } from "./server/review-modes";
-import { ReviewStates } from "./server/review-state";
-import { cacheDirectory } from "./server/slots";
-import { GuideStore } from "./server/store";
-import { TreeFiles } from "./server/trees";
-import { ProjectTrust } from "./server/trust";
-import { PluginUpdates } from "./server/updates";
-import { type Failed, failed } from "./shared/errors";
+import { handleReviews } from "../kit/server/handlers";
+import { handlePacked } from "../kit/server/packed";
+import { repoRoot } from "../kit/server/repo";
+import { cacheDirectory } from "../kit/server/slots";
+import { type Failed, failed } from "../kit/shared/errors";
 import {
-  agentsRpc,
   blobRpc,
   branchesRpc,
   diffRpc,
@@ -30,7 +16,6 @@ import {
   highlightRpc,
   leaseRpc,
   lspRpc,
-  markdownRpc,
   mermaidRpc,
   modeRpc,
   monacoRpc,
@@ -38,31 +23,38 @@ import {
   peekRpc,
   setModeRpc,
   setTrustRpc,
-  stateChangeRpc,
-  stateRpc,
-  submitRpc,
   syntaxDiffRpc,
   trustRpc,
-  updateRpc,
-  updateStatusRpc,
-} from "./shared/protocol";
-import { reviewSettings } from "./shared/settings";
+} from "../shared/protocol";
+import { reviewSettings } from "../shared/settings";
+import { Difftastic } from "./difftastic";
+import { listBranches, previewBlob, readDiff } from "./git";
+import { highlightSides, syntaxPalette } from "./highlight";
+import { peek } from "./lsp/peek";
+import { LanguageServers } from "./lsp/pool";
+import { MermaidRenderer } from "./mermaid/renderer";
+import { monacoChunk } from "./monaco-assets";
+import { ReviewModes } from "./review-modes";
+import { GuideStore } from "./store";
+import { TreeFiles } from "./trees";
+import { ProjectTrust } from "./trust";
+
+const PLUGIN_ID = "review-assist";
 
 export default function contribute(server: PluginServerContext): () => Promise<void> {
   const settings = server.registerSettings(reviewSettings);
-  const store = new GuideStore(cacheDirectory(), async () => {
+  const cache = cacheDirectory(PLUGIN_ID);
+  const store = new GuideStore(cache, async () => {
     const state = await settings.read();
     return state.status === "ready" ? state.values : {};
   });
-  const states = new ReviewStates(cacheDirectory());
-  const modes = new ReviewModes(cacheDirectory());
+  const modes = new ReviewModes(cache);
   const difftastic = new Difftastic();
   const trees = new TreeFiles();
   const languageServers = new LanguageServers(trees);
-  const trust = new ProjectTrust(cacheDirectory());
+  const trust = new ProjectTrust(cache);
   const projectOfServedRoot = new Map<string, string>();
   const mermaid = new MermaidRenderer();
-  const updates = new PluginUpdates();
   // Roots arrive from clients; only real repository top levels are served.
   const roots = new Set<string>();
   const rootRefusal = async (root: string): Promise<Failed | null> => {
@@ -99,10 +91,7 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   });
   server.handle(guideJobRpc, (input) => ({ job: store.job(input) }));
   server.handle(generateRpc, (input, { paseo }) => ({ job: store.generate(input, paseo) }));
-  handlePacked(server, stateRpc, (input) => states.read(input));
-  handlePacked(server, stateChangeRpc, ({ change, ...target }) => states.apply(target, change));
-  server.handle(agentsRpc, async ({ workspaceId }, { paseo }) => ({ agents: await workspaceAgents(paseo, workspaceId) }));
-  server.handle(submitRpc, (input, { paseo }) => submitReview(paseo, states, input));
+  handleReviews(server, PLUGIN_ID, repoRoot);
   handlePacked(server, fileRpc, async ({ root, tree, path }) =>
     (await rootRefusal(root)) ??
     (tree == null ? languageServers.readFile(root, path) : trees.read(root, tree, path)).then(
@@ -123,12 +112,6 @@ export default function contribute(server: PluginServerContext): () => Promise<v
   server.handle(paletteRpc, ({ scheme }) => ({ colors: syntaxPalette(scheme) }));
   handlePacked(server, monacoRpc, ({ asset, offset }) => monacoChunk(asset, offset));
   handlePacked(server, mermaidRpc, (input) => mermaid.draw(input));
-  handlePacked(server, markdownRpc, ({ before, after }) => markdownDiff(before, after));
-  server.handle(updateStatusRpc, () => updates.status());
-  server.handle(updateRpc, () => {
-    updates.install();
-    return {};
-  });
   server.handle(trustRpc, async ({ projectId }) => ({ trust: await trust.read(projectId) }));
   server.handle(setTrustRpc, async ({ projectId, trusted }) => {
     const decided = await trust.decide(projectId, trusted);

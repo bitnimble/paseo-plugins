@@ -1,9 +1,9 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { z } from "zod";
-import { LINE_PREFIX, type DiffFile, type DiffHunk, type ParsedDiff } from "../shared/diff";
+import { LINE_PREFIX, type DiffFile, type DiffHunk, type ParsedDiff } from "../kit/shared/diff";
+import { messageOf } from "../kit/shared/errors";
+import { modelsToTry } from "../kit/shared/models";
 import { type Proposal, proposalSchema } from "../shared/guide";
-import { messageOf } from "../shared/errors";
-import { modelsToTry } from "../shared/models";
 import { mapLimit } from "./map-limit";
 import type { ContextLine, HunkContext, PromptContext } from "./prompt-context";
 

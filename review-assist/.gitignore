@@ -1,3 +1,4 @@
 server/monaco/
 server/mermaid/worker.js.txt
 index.client.ts
+index.server.ts

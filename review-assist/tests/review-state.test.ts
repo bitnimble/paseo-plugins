@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { DraftComment } from "../shared/protocol";
-import { EMPTY_REVIEW_STATE, applyStateChange } from "../shared/review-state";
+import type { DraftComment } from "../kit/shared/protocol";
+import { EMPTY_REVIEW_STATE, applyStateChange } from "../kit/shared/review-state";
 
 function comment(id: string, body: string): DraftComment {
   return {

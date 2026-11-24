@@ -2,20 +2,15 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useMemo } from "react";
 import { Platform, Text, type TextStyle, View } from "react-native";
-import { messageOf } from "../shared/errors";
-import type { FileBlock } from "../shared/guide";
-import { hashText } from "../shared/hash";
-import {
-  MERMAID_MAX_DISTANCE,
-  type MermaidOutcome,
-  type MermaidPalette,
-  mermaidRpc,
-} from "../shared/protocol";
-import { blockSides } from "../shared/sides";
-import { IconButton } from "./controls";
-import { usePackedRpc } from "./packed";
-import { hexColor, isDark } from "./palette";
-import type { FileText } from "./use-code";
+import { IconButton } from "../kit/client/controls";
+import type { FileText } from "../kit/client/file-text";
+import { usePackedRpc } from "../kit/client/packed";
+import { hexColor, isDark } from "../kit/client/palette";
+import type { FileBlock } from "../kit/shared/blocks";
+import { messageOf } from "../kit/shared/errors";
+import { hashText } from "../kit/shared/hash";
+import { blockSides } from "../kit/shared/sides";
+import { MERMAID_MAX_DISTANCE, type MermaidOutcome, type MermaidPalette, mermaidRpc } from "../shared/protocol";
 import { ZoomableImage } from "./zoomable-image";
 
 export function MermaidBody({

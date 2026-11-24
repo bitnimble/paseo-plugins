@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { hashText } from "../../shared/hash";
+import { hashText } from "../../kit/shared/hash";
 import { toHoverMarkdown, toLocations } from "../../shared/lsp";
 import type { LspMethod, MonacoAsset } from "../../shared/protocol";
 import { createDetachedNode, injectMonaco } from "../web";

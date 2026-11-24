@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { z } from "zod";
-import { messageOf } from "../shared/errors";
+import { messageOf } from "../kit/shared/errors";
 import type { DifftasticStatus, SyntaxChange, SyntaxDiff } from "../shared/protocol";
 
 const PROBE_TIMEOUT_MS = 5_000;

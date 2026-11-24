@@ -1,22 +1,23 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
-import { type FileBlock, blockChanges, blockLines } from "../shared/guide";
-import type { DraftComment } from "../shared/protocol";
+import type { CommentDraft } from "../kit/client/comments";
+import { CentreAboveKeyboard, useCentreAboveKeyboard } from "../kit/client/keyboard";
+import { CODE_SURFACE } from "../kit/client/palette";
+import { type CommentStore, useCommentDrafts } from "../kit/client/use-comment-drafts";
+import { type FileBlock, blockChanges, blockLines } from "../kit/shared/blocks";
+import type { DraftComment } from "../kit/shared/protocol";
+import { CAPPED_CHANGES, MORE_CHANGES_STEP } from "../kit/shared/sides";
 import type { ViewOptions } from "../shared/settings";
-import { CAPPED_CHANGES, MORE_CHANGES_STEP } from "../shared/sides";
-import type { CommentDraft } from "./comments";
 import { CODE_LINE_HEIGHT, FILE_HEADER_HEIGHT, createStyles } from "./diff-styles";
-import { type CommentActions, FileBlockView } from "./file-block";
-import { CentreAboveKeyboard, afterKeyboard, centring, spanOf } from "./keyboard";
-import { ScrollLock } from "./zoomable-image";
+import { FileBlockView } from "./file-block";
 import type { CodeSource } from "./monaco/review-monaco";
-import { CODE_SURFACE } from "./palette";
 import { SettledWidth } from "./settled-width";
 import { usePalette } from "./use-code";
 import { type VisualView, defaultVisualView } from "./visual-view";
 import { installStickyStyle, isMonacoSupported } from "./web";
 import { ScrollList, type ScrollListHandle, type WindowedRow } from "./windowed-rows";
+import { ScrollLock } from "./zoomable-image";
 
 const COLLAPSE_OVER_CHANGES = 800;
 const NO_COMMENTS: readonly DraftComment[] = [];
@@ -45,12 +46,6 @@ export interface FoldCommand {
 export interface FileViewing {
   isViewed(block: FileBlock): boolean;
   setViewed(block: FileBlock, viewed: boolean): void;
-}
-
-export interface CommentStore {
-  readonly comments: readonly DraftComment[];
-  save(comment: DraftComment): void;
-  remove(id: string): void;
 }
 
 interface DiffListProps {
@@ -93,39 +88,11 @@ export function DiffList(props: DiffListProps) {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const palette = usePalette(theme);
   const [overflowHost, setOverflowHost] = useState<object | null>(null);
-  const [draft, setDraft] = useState<CommentDraft | null>(null);
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  const bottomInset = draft == null ? 0 : keyboardInset;
-  const latest = useRef({ props, draft, bottomInset });
-  latest.current = { props, draft, bottomInset };
+  const { draft, actions } = useCommentDrafts(props.comments);
   const frame = useRef<View>(null);
-  const pendingScroll = useRef<number | null>(null);
-  const scrollToPending = useCallback(() => {
-    if (pendingScroll.current == null) return;
-    list.current?.scrollTo(pendingScroll.current, true);
-    pendingScroll.current = null;
-  }, []);
-  const centreAboveKeyboard = useCallback(
-    (node: View) => {
-      let live = true;
-      const stop = afterKeyboard(async (visible) => {
-        if (frame.current == null) return;
-        const [shown, target] = await Promise.all([spanOf(frame.current), spanOf(node)]);
-        if (!live) return;
-        const { scroll, bottomInset: inset } = centring(shown, target, visible);
-        pendingScroll.current = Math.max(0, (list.current?.offset() ?? 0) + scroll);
-        // The effect on the inset scrolls once the space is laid out.
-        if (inset === latest.current.bottomInset) scrollToPending();
-        else setKeyboardInset(inset);
-      });
-      return () => {
-        live = false;
-        stop();
-      };
-    },
-    [scrollToPending],
-  );
-  useEffect(scrollToPending, [bottomInset, scrollToPending]);
+  const { centre: centreAboveKeyboard, bottomInset } = useCentreAboveKeyboard(frame, list, draft != null);
+  const latest = useRef({ props });
+  latest.current = { props };
   useEffect(installStickyStyle, []);
 
   const setCollapsed = useCallback((key: string, collapsed: boolean) => {
@@ -163,35 +130,6 @@ export function DiffList(props: DiffListProps) {
       setFolding(({ base, overrides }) => ({ base, overrides: new Map([...overrides, ...flipped]) }));
     }
   });
-
-  const actions = useMemo(
-    (): CommentActions => ({
-      compose: (filePath, blockKey, lines, start, end, extend) =>
-        setDraft((current): CommentDraft => {
-          const same = current?.kind === "new" && current.blockKey === blockKey ? current : null;
-          const from = same == null ? -1 : lines.indexOf(same.lines[same.start]);
-          const to = same == null ? -1 : lines.indexOf(same.lines[same.end]);
-          if (!extend || from < 0 || to < 0) return { kind: "new", filePath, blockKey, lines, start, end };
-          return { kind: "new", filePath, blockKey, lines, start: Math.min(from, start), end: Math.max(to, end) };
-        }),
-      edit: (comment) => setDraft({ kind: "edit", comment }),
-      cancel: () => setDraft(null),
-      submit: (target, body, suggestion) => {
-        const { draft: current, props: currentProps } = latest.current;
-        currentProps.comments.save(
-          current?.kind === "edit"
-            ? { ...current.comment, body, suggestion }
-            : { ...target, id: newCommentId(), body, suggestion, createdAt: new Date().toISOString() },
-        );
-        setDraft(null);
-      },
-      remove: (id) => {
-        latest.current.props.comments.remove(id);
-        setDraft((current) => (current?.kind === "edit" && current.comment.id === id ? null : current));
-      },
-    }),
-    [],
-  );
 
   const commentsByFile = useMemo(() => {
     const byFile = new Map<string, DraftComment[]>();
@@ -388,10 +326,6 @@ function trailingKey(index: number): string {
 
 function draftPath(draft: CommentDraft): string {
   return draft.kind === "edit" ? draft.comment.filePath : draft.filePath;
-}
-
-function newCommentId(): string {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function collapsedByDefault(block: FileBlock): boolean {

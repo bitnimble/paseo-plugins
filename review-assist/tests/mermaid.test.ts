@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, describe, test } from "node:test";
-import type { MermaidPalette } from "../shared/protocol";
 import { type Diagram, type DiagramNode, diffDiagrams, diffRows, diffSource } from "../server/mermaid/diagram";
 import { MermaidRenderer } from "../server/mermaid/renderer";
+import type { MermaidPalette } from "../shared/protocol";
 
 const node = (id: string, fields: Partial<DiagramNode> = {}): DiagramNode => ({
   id,

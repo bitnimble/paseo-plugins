@@ -3,6 +3,8 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { isEdit, rangeLabel } from "../shared/comments";
 import type { DraftComment } from "../shared/protocol";
 
+const BOM = "﻿";
+
 export interface SuggestionResult {
   readonly applied: readonly DraftComment[];
   /** The other comments, with new-side line numbers moved past the applied edits. */
@@ -40,10 +42,13 @@ export async function applySuggestions(root: string, comments: readonly DraftCom
 
 /** `text` with each comment's lines replaced by its suggestion; throws if any lines differ from the original. */
 export function applyEdits(text: string, comments: readonly DraftComment[]): string {
+  // Paseo's file reads drop a byte order mark that diffs keep: compare and write without, then restore.
+  const bom = text.startsWith(BOM) ? BOM : "";
+  const body = text.slice(bom.length);
   // Diff text keeps a CRLF file's "\r"s, and the composer drops them; compare and write without, then restore.
-  let lines = text.split("\n");
+  let lines = body.split("\n");
   const bare = (line: string) => (line.endsWith("\r") ? line.slice(0, -1) : line);
-  const lineCount = text === "" ? 0 : text.endsWith("\n") ? lines.length - 1 : lines.length;
+  const lineCount = body === "" ? 0 : body.endsWith("\n") ? lines.length - 1 : lines.length;
   const edits = [...comments].sort((a, b) => b.startLine - a.startLine);
   edits.forEach((edit, i) => {
     const below = edits[i - 1];
@@ -51,7 +56,7 @@ export function applyEdits(text: string, comments: readonly DraftComment[]): str
       throw new Error(`Suggestions on ${edit.filePath} ${rangeLabel(edit).toLowerCase()} and ${rangeLabel(below).toLowerCase()} overlap.`);
     }
     const current = lines.slice(edit.startLine - 1, edit.lineNumber).map(bare).join("\n");
-    if (edit.lineNumber > lineCount || current !== edit.suggestion?.original) {
+    if (edit.lineNumber > lineCount || current !== unmarked(edit.suggestion?.original)) {
       throw new Error(`${edit.filePath} ${rangeLabel(edit).toLowerCase()} changed since the suggestion; edit or delete it.`);
     }
   });
@@ -62,7 +67,11 @@ export function applyEdits(text: string, comments: readonly DraftComment[]): str
     const ended = replaced.map((line, i) => line + (i === replaced.length - 1 ? lastEnding : crlf ? "\r" : ""));
     lines = lines.slice(0, edit.startLine - 1).concat(ended, lines.slice(edit.lineNumber));
   }
-  return lines.join("\n");
+  return bom + lines.join("\n");
+}
+
+function unmarked(text: string | undefined): string | undefined {
+  return text?.startsWith(BOM) ? text.slice(1) : text;
 }
 
 /** `comment` renumbered for the edits before or inside its lines. */
@@ -77,6 +86,6 @@ function shifted(comment: DraftComment, edits: readonly DraftComment[]): DraftCo
 
 /** An empty suggestion deletes the lines. */
 function replacementLines(comment: DraftComment): string[] {
-  const replacement = comment.suggestion?.replacement ?? "";
+  const replacement = unmarked(comment.suggestion?.replacement) ?? "";
   return replacement === "" ? [] : replacement.split("\n");
 }

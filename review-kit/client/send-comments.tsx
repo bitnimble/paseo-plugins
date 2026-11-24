@@ -18,7 +18,7 @@ import { Button, FieldTrigger, ToolbarTrigger } from "./controls";
 import { MenuItem } from "./menu";
 import { BrowserBack, ModelOptions } from "./model-menu";
 import { useProviders } from "./use-providers";
-import type { Review } from "./use-review";
+import type { SubmitComments } from "./use-review-state";
 
 const DEFAULT_PICKS: AgentPicks = { model: null, mode: null, thinking: null };
 
@@ -31,7 +31,7 @@ export function SendComments({
   theme: PluginTheme;
   workspaceId: string;
   comments: readonly DraftComment[];
-  submit: Review["submit"];
+  submit: SubmitComments;
 }) {
   const toast = useToast();
   const listAgents = useRpc(agentsRpc);

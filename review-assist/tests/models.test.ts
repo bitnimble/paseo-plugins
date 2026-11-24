@@ -7,7 +7,7 @@ import {
   modelChoices,
   modelsToTry,
   providerChoices,
-} from "../shared/models";
+} from "../kit/shared/models";
 
 const provider = (
   name: string,

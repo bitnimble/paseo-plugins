@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { type DiffMode, diffModeSchema } from "../shared/protocol";
-import { JsonSlots } from "./slots";
+import { JsonSlots } from "../kit/server/slots";
+import { type DiffMode, diffModeSchema } from "../kit/shared/protocol";
 
 const bookSchema = z.record(z.string(), diffModeSchema);
 type Book = z.infer<typeof bookSchema>;

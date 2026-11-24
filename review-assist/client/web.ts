@@ -1,7 +1,8 @@
 import { Platform } from "react-native";
+import { MONOSPACE } from "../kit/client/palette";
+import { hasMouse } from "../kit/client/web";
 import type { MonacoAsset } from "../shared/protocol";
 import type { CodeEditor, EditorContainer, Monaco } from "./monaco/api";
-import { MONOSPACE } from "./palette";
 
 // This plugin typechecks without the DOM library.
 interface ElementNode {
@@ -31,7 +32,6 @@ declare const document: {
 declare const window: {
   require?: AmdRequire;
   MonacoEnvironment?: { getWorker(): unknown };
-  matchMedia?(query: string): { matches: boolean };
 };
 
 interface QueryNode {
@@ -119,10 +119,6 @@ export function markResizing(resizing: boolean): void {
 /** Monaco is mouse-and-keyboard software: phones and tablets get the built-in renderer. */
 export function isMonacoSupported(): boolean {
   return hasMouse();
-}
-
-export function hasMouse(): boolean {
-  return Platform.OS === "web" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
 }
 
 export function asEditorContainer(node: object): EditorContainer {

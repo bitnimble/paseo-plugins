@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseDiff } from "../kit/shared/diff";
 import { type ContextLine, type PromptContextOptions, readPromptContext } from "../server/prompt-context";
-import { parseDiff } from "../shared/diff";
 
 const NEW_SHAPE = `class Shape {
   area(): number {

@@ -1,7 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Platform } from "react-native";
 import type { DiffFileStatus } from "../shared/diff";
-import type { SyntaxPalette } from "./monaco/theme";
+
+type RoleColors = Readonly<Record<string, string>>;
 
 export const MONOSPACE = Platform.select({
   ios: "Menlo",
@@ -50,7 +51,7 @@ export function diffAlpha(theme: PluginTheme): DiffAlpha {
 }
 
 /** On dark themes, each syntax color lifted toward the foreground until it reads on a changed word's mark. */
-export function legibleSyntax(theme: PluginTheme, palette: SyntaxPalette): SyntaxPalette {
+export function legibleSyntax(theme: PluginTheme, palette: RoleColors): RoleColors {
   const { colors } = theme;
   const surface = parseColor(colors.surface0);
   const foreground = parseColor(colors.foreground);

@@ -2,10 +2,10 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
-import type { DiffFile } from "../shared/diff";
+import { ChangeStats, FileLabel } from "../kit/client/controls";
+import type { DiffFile } from "../kit/shared/diff";
 import type { ViewOptions } from "../shared/settings";
 import { treeRows } from "../shared/tree";
-import { ChangeStats, FileLabel } from "./controls";
 import { markResizing } from "./web";
 
 const MIN_PANE_WIDTH = 180;

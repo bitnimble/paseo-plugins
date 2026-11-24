@@ -2,20 +2,6 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Platform, Pressable, type StyleProp, Text, type TextStyle, View } from "react-native";
-import type { CommentTarget } from "../shared/comments";
-import type { DiffFile, DiffLine } from "../shared/diff";
-import { type Span, type SplitRow, splitRows, syntaxLineChanges, wordChanges } from "../shared/display";
-import type { FileBlock } from "../shared/guide";
-import type { ViewOptions } from "../shared/settings";
-import {
-  CONTEXT_LINES,
-  type ShownHunk,
-  blockHunks,
-  blockSides,
-  hunksOf,
-  takeChanges,
-  wholeFileLines,
-} from "../shared/sides";
 import {
   type Card,
   CommentSlot,
@@ -28,12 +14,27 @@ import {
   fileCards,
   inScope,
   scopeEdges,
-} from "./comments";
-import { ShowMoreChanges } from "./controls";
+} from "../kit/client/comments";
+import { ShowMoreChanges } from "../kit/client/controls";
+import { CODE_SURFACE } from "../kit/client/palette";
+import type { FileBlock } from "../kit/shared/blocks";
+import type { CommentTarget } from "../kit/shared/comments";
+import type { DiffFile, DiffLine } from "../kit/shared/diff";
+import { type Span, type SplitRow, splitRows, wordChanges } from "../kit/shared/display";
+import {
+  CONTEXT_LINES,
+  type ShownHunk,
+  blockHunks,
+  blockSides,
+  hunksOf,
+  takeChanges,
+  wholeFileLines,
+} from "../kit/shared/sides";
+import type { ViewOptions } from "../shared/settings";
+import { syntaxLineChanges } from "../shared/syntax-lines";
 import { CODE_FONT_SIZE, CODE_LINE_HEIGHT, type DiffStyles } from "./diff-styles";
 import type { CodeSource } from "./monaco/review-monaco";
 import type { SyntaxPalette } from "./monaco/theme";
-import { CODE_SURFACE } from "./palette";
 import { LanguageFeatures, type PeekTarget, PeekView } from "./peek";
 import { type CodePiece, type FileSyntax, codePieces, expandTabs, lineTokens, wordAt } from "./syntax";
 import { useSyntax, useSyntaxDiff } from "./use-code";

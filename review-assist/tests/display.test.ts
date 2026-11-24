@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LINE_PREFIX, parseDiff } from "../shared/diff";
-import { hideWhitespaceChanges, splitRows, syntaxLineChanges, wordChanges } from "../shared/display";
+import { LINE_PREFIX, parseDiff } from "../kit/shared/diff";
+import { hideWhitespaceChanges, splitRows, wordChanges } from "../kit/shared/display";
+import { syntaxLineChanges } from "../shared/syntax-lines";
 
 function hunkLines(body: string[]) {
   const oldCount = body.filter((line) => !line.startsWith("+")).length;

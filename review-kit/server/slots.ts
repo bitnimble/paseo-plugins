@@ -10,8 +10,8 @@ export interface Target {
   readonly mode: DiffMode;
 }
 
-export function cacheDirectory(): string {
-  return join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "paseo-review-assist");
+export function cacheDirectory(pluginId: string): string {
+  return join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), `paseo-${pluginId}`);
 }
 
 /** A JSON file per name, cached in memory, with each file's updates applied in order. */

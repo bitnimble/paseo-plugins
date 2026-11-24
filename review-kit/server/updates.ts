@@ -4,7 +4,6 @@ import { z } from "zod";
 import { messageOf } from "../shared/errors";
 import type { UpdateStatus } from "../shared/protocol";
 
-const PLUGIN_ID = "review-assist";
 // Under the daemon's ~60s RPC timeout, so a slow check reports why rather than timing the call out.
 const CHECK_TIMEOUT_MS = 45_000;
 const INSTALL_TIMEOUT_MS = 30 * 60_000;
@@ -26,10 +25,13 @@ export class PluginUpdates {
   private installing = false;
   private failure: string | null = null;
 
+  /** `pluginId` as installed, which is the manifest's unless installed with `--id`. */
+  constructor(private readonly pluginId: string) {}
+
   async status(): Promise<UpdateStatus> {
     if (this.installing) return { status: "updating" };
     try {
-      const status = statusOf(await paseo(["plugin", "update", PLUGIN_ID, "--check", "--json"], CHECK_TIMEOUT_MS));
+      const status = statusOf(await paseo(["plugin", "update", this.pluginId, "--check", "--json"], CHECK_TIMEOUT_MS));
       return status.status === "available" ? { ...status, failure: this.failure } : status;
     } catch (error) {
       return { status: "unavailable", reason: messageOf(error) };
@@ -41,7 +43,7 @@ export class PluginUpdates {
     if (this.installing) return;
     this.installing = true;
     this.failure = null;
-    paseo(["plugin", "update", PLUGIN_ID, "--yes", "--json"], INSTALL_TIMEOUT_MS)
+    paseo(["plugin", "update", this.pluginId, "--yes", "--json"], INSTALL_TIMEOUT_MS)
       .then(resultOf)
       .catch((error: unknown) => messageOf(error))
       .then((failure) => {

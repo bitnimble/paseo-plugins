@@ -1,5 +1,5 @@
 import { getParserForFile } from "@getpaseo/highlight";
-import type { DiffFile, DiffHunk, ParsedDiff } from "../shared/diff";
+import type { DiffFile, DiffHunk, ParsedDiff } from "../kit/shared/diff";
 import { mapLimit } from "./map-limit";
 
 export type ContextSide = "old" | "new";

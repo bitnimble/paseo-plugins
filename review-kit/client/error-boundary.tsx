@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo): void {
-    console.error(`[review-assist] The review panel crashed\n\n${detailsOf(error)}\n${info.componentStack ?? ""}`);
+    console.error(`The review panel crashed\n\n${detailsOf(error)}\n${info.componentStack ?? ""}`);
   }
 
   render(): ReactNode {

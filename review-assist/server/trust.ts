@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { JsonSlots } from "../kit/server/slots";
 import type { Trust } from "../shared/protocol";
-import { JsonSlots } from "./slots";
 
 const bookSchema = z.record(z.string(), z.boolean());
 type Book = z.infer<typeof bookSchema>;

@@ -1,6 +1,6 @@
+import type { DiffChunk, FileBlock } from "./blocks";
 import { type DiffFile, type DiffHunk, type DiffLine, isChange } from "./diff";
 import { hideWhitespaceChanges } from "./display";
-import type { DiffChunk, FileBlock } from "./guide";
 
 /** A line as one side of a block shows it, numbered in the diff's real old and new files. */
 export interface SideLine {

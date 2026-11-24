@@ -4,15 +4,9 @@ import { TextInput } from "@getpaseo/plugin/client/ui";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { type RefObject, useState } from "react";
 import { Text, type View } from "react-native";
-import {
-  DEFAULT_BRANCH_MODE,
-  type DiffBase,
-  type DiffMode,
-  UNCOMMITTED_MODE,
-  branchesRpc,
-  modeKey,
-} from "../shared/protocol";
-import { Dropdown, MenuHeading, MenuItem, MenuSeparator } from "./menu";
+import { Dropdown, MenuHeading, MenuItem, MenuSeparator } from "../kit/client/menu";
+import { DEFAULT_BRANCH_MODE, type DiffMode, UNCOMMITTED_MODE, modeKey } from "../kit/shared/protocol";
+import { type DiffBase, branchesRpc } from "../shared/protocol";
 
 const SHOWN_BRANCHES = 8;
 
